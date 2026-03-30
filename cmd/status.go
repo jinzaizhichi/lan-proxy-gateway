@@ -84,6 +84,19 @@ func runStatus(cmd *cobra.Command, args []string) {
 	color.New(color.Bold).Println("  代理信息")
 	ui.Separator()
 
+	mode := cfg.EffectiveProxyMode()
+	modeDesc := map[string]string{
+		"rule":       "规则分流",
+		"global":     "全局机场",
+		"global_isp": "全局住宅ISP",
+		"ai_proxy":   "AI工作流代理",
+	}
+	desc := modeDesc[mode]
+	if desc == "" {
+		desc = mode
+	}
+	fmt.Printf("  代理模式:    %s\n", color.CyanString(desc))
+
 	if v, err := client.GetVersion(); err == nil {
 		fmt.Printf("  版本:        %s\n", v.Version)
 	}

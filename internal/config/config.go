@@ -1,19 +1,50 @@
 package config
 
 import (
+	"fmt"
 	"os"
 
 	"gopkg.in/yaml.v3"
 )
 
+const (
+	ProxyModeRule      = "rule"
+	ProxyModeGlobal    = "global"
+	ProxyModeGlobalISP = "global_isp"
+	ProxyModeAIProxy   = "ai_proxy"
+)
+
 type Config struct {
 	ProxySource      string            `yaml:"proxy_source"`
+	ProxyMode        string            `yaml:"proxy_mode,omitempty"`
 	SubscriptionURL  string            `yaml:"subscription_url,omitempty"`
 	ProxyConfigFile  string            `yaml:"proxy_config_file,omitempty"`
 	SubscriptionName string            `yaml:"subscription_name"`
 	Ports            PortsConfig       `yaml:"ports"`
 	APISecret        string            `yaml:"api_secret,omitempty"`
 	ChainProxy       *ChainProxyConfig `yaml:"chain_proxy,omitempty"`
+}
+
+func (c *Config) EffectiveProxyMode() string {
+	if c.ProxyMode == "" {
+		return ProxyModeRule
+	}
+	return c.ProxyMode
+}
+
+func (c *Config) ValidateProxyMode() error {
+	mode := c.EffectiveProxyMode()
+	switch mode {
+	case ProxyModeRule, ProxyModeGlobal:
+		return nil
+	case ProxyModeGlobalISP, ProxyModeAIProxy:
+		if c.ChainProxy == nil || !c.ChainProxy.Enabled {
+			return fmt.Errorf("%s 模式需要启用 chain_proxy 配置", mode)
+		}
+		return nil
+	default:
+		return fmt.Errorf("不支持的代理模式: %s (可选: rule, global, global_isp, ai_proxy)", mode)
+	}
 }
 
 type PortsConfig struct {

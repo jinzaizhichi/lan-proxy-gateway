@@ -34,6 +34,10 @@ func runStart(cmd *cobra.Command, args []string) {
 	ui.Step(1, 5, "准备环境...")
 
 	cfg := loadConfigRequired()
+	if err := cfg.ValidateProxyMode(); err != nil {
+		ui.Error("%s", err)
+		os.Exit(1)
+	}
 	dDir := ensureDataDir()
 
 	binary, err := p.FindBinary()
