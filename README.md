@@ -1,447 +1,517 @@
 # LAN Proxy Gateway
 
-**不刷固件、不买软路由，一条命令把你的电脑变成全屋科学上网网关。**
+**把你的电脑变成全屋科学上网网关，Switch / PS5 / Apple TV / 智能电视 改个网关设置就能用。**
 
-支持 **macOS / Linux / Windows** 三平台。Switch 看 YouTube、Apple TV 刷 Netflix、PS5 联机加速 —— 只要设备能连 Wi-Fi，改个网关就能用。
+不刷路由器固件，不买软路由，一条命令搞定。支持 **macOS / Linux / Windows**。
 
-```mermaid
-graph TD
-    Internet(("🌐 互联网"))
-    Router["🔲 路由器<br/>192.168.x.1"]
-    Mac["🖥 网关电脑<br/>运行 mihomo · 192.168.x.2"]
-    Switch["🎮 Switch<br/>YouTube · eShop"]
-    ATV["📺 Apple TV<br/>Netflix · Disney+"]
-    PS5["🕹 PS5 / Xbox<br/>PSN · 联机加速"]
-    TV["📡 智能电视<br/>流媒体"]
-    Phone["📱 手机 / 电脑<br/>正常上网"]
+---
 
-    Internet <--> Router
-    Router <--> Mac
-    Router <--> Phone
-    Mac -- "网关 + DNS 指向网关 IP" --> Switch
-    Mac -- "网关 + DNS 指向网关 IP" --> ATV
-    Mac -- "网关 + DNS 指向网关 IP" --> PS5
-    Mac -- "网关 + DNS 指向网关 IP" --> TV
+## 这是什么，我能用来干嘛？
 
-    style Mac fill:#2d9e2d,color:#fff,stroke:#1a7a1a
-    style Internet fill:#4a90d9,color:#fff,stroke:#2a6ab9
-    style Router fill:#f5a623,color:#fff,stroke:#d4891a
-    style Switch fill:#e60012,color:#fff,stroke:#b8000e
-    style ATV fill:#555,color:#fff,stroke:#333
-    style PS5 fill:#006fcd,color:#fff,stroke:#0055a0
-    style TV fill:#8e44ad,color:#fff,stroke:#6c3483
-    style Phone fill:#95a5a6,color:#fff,stroke:#7f8c8d
+家里总有些设备**没法装代理软件**：Switch、PS5、Apple TV、智能电视……
+
+这个工具把你的电脑变成一台"网关"：其他设备只需要把网络设置里的"网关"和"DNS"改成你电脑的 IP，流量就会自动走代理，**无需在每台设备上安装任何 App**。
+
+```
+你的设备（Switch / PS5 / 手机 / 电视）
+        ↓ 网关指向电脑 IP
+    你的电脑（运行本工具）
+        ↓ 自动分流
+ 国内流量直连 / 国外流量走代理 / 广告拦截
 ```
 
-## 为什么做这个
+---
 
-家里总有些设备**装不了代理软件**：Switch、Apple TV、PS5、智能电视……
+## 和 Clash Verge "局域网代理" 有什么区别？
 
-常见方案是刷路由器固件或买一台软路由，但——
-- 刷固件有变砖风险，配置复杂
-- 软路由又要额外花钱，还占地方
+很多人已经在用 Clash Verge，它有一个"允许局域网连接"选项。这两种方案看起来相似，但**原理完全不同**，解决的也是不同的问题：
 
-其实你的电脑就是最好的网关。这个项目把整个过程封装成一个 CLI 工具，不需要你懂网络知识。
+| | Clash Verge 局域网代理 | LAN Proxy Gateway（本工具） |
+|---|---|---|
+| **原理** | 应用层代理（HTTP/SOCKS5 端口 7890） | 网络层透明代理（TUN 虚拟网卡） |
+| **设备配置方式** | 在设备"代理服务器"里填电脑 IP:7890 | 改设备的"网关"和 IP 指向电脑 |
+| **Switch 看 YouTube** | ❌ **不行**，即使配了代理也无法解锁 YouTube | ✅ 能，改网关即可解锁 |
+| **PS5 / Apple TV 流媒体** | ⚠️ 部分设备能配代理，但解锁效果不稳定 | ✅ 能，走网关层透明代理更彻底 |
+| **iPhone / Android** | ✅ 可以，手动填代理服务器 | ✅ 可以，无感更彻底 |
+| **App 能感知到代理** | 是，App 可检测到，部分服务会拒绝 | 否，完全透明，App 感知不到 |
+| **国内/国外分流** | 取决于 Clash 规则 | 内置智能分流，国内直连 |
 
-## 支持的设备和场景
+**核心区别：** Clash Verge 局域网代理走的是**应用层**——设备通过代理服务器上网，但这种方式在 Switch 上无法解锁 YouTube 等流媒体（实测）。本工具走的是**网络层**——设备把网关改成你的电脑，所有流量在路由层就被透明接管，和在路由器上刷固件的效果相同，能真正解锁 Switch 上的 YouTube 和 eShop。
 
-| 设备 | 场景 | 效果 |
-|------|------|------|
-| **Nintendo Switch** | eShop、YouTube、在线联机 | 直连国际服，看 YouTube 无压力 |
-| **Apple TV** | Netflix、Disney+、YouTube、HBO | 4K 流畅播放，告别转圈 |
-| **PS5 / Xbox** | PSN 商店、在线对战、下载加速 | 联机稳定，下载提速 |
-| **智能电视** | YouTube、Netflix、流媒体 App | 大屏观影体验拉满 |
-| **IoT 设备** | 任何能改网关的设备 | 都能用 |
+> **已在用 Clash Verge 的注意：** 两者都用 TUN 模式时会产生冲突（都要创建虚拟网卡）。使用本工具前，请关闭 Clash Verge 的 TUN 模式，或直接退出 Clash Verge。
 
-## 快速开始
+---
 
-### 你需要准备
+## 开始之前，你需要准备
 
-- 一台电脑（Mac / Linux / Windows）
-- [mihomo](https://github.com/MetaCubeX/mihomo) 内核（安装向导会引导你）
-- 一个代理来源：**订阅链接**（机场提供的 URL）或 **Clash 配置文件**
+| 需要什么 | 说明 |
+|---------|------|
+| 一台电脑 | Mac / Linux / Windows 均可，电脑要保持开机 |
+| 代理订阅链接 | 机场提供的那串 URL（通常叫"Clash 订阅"或"通用订阅"） |
+| 所有设备连同一个 Wi-Fi | 你的电脑和要科学上网的设备必须在同一个路由器下 |
 
-### 安装
+> **没有订阅链接？** 本工具只是网关，不提供代理节点。你需要先购买一个支持 Clash/mihomo 格式的代理服务（俗称"机场"），它会提供给你一个订阅链接。
 
-**方式一：一键安装**（推荐）
+---
 
-macOS / Linux:
+## 第一步：安装工具
+
+### 推荐方式：一键安装脚本
+
+打开终端（Mac 上搜索"终端"或"Terminal"，Windows 打开"PowerShell"），粘贴下面的命令运行：
+
+**macOS / Linux：**
 
 ```bash
-# 国际网络
+# 如果能直连 GitHub（首选）
 curl -fsSL https://raw.githubusercontent.com/Tght1211/lan-proxy-gateway/main/install.sh | bash
 
-# 国内镜像（二选一）
+# 如果 GitHub 访问慢，用镜像（二选一）
 curl -fsSL https://raw.gitmirror.com/Tght1211/lan-proxy-gateway/main/install.sh | bash
 curl -fsSL https://mirror.ghproxy.com/https://raw.githubusercontent.com/Tght1211/lan-proxy-gateway/main/install.sh | bash
 ```
 
-Windows (PowerShell):
+**Windows（PowerShell，右键"以管理员身份运行"）：**
 
 ```powershell
-# 国际网络
+# 如果能直连 GitHub（首选）
 irm https://raw.githubusercontent.com/Tght1211/lan-proxy-gateway/main/install.ps1 | iex
 
-# 国内镜像（二选一）
+# 如果 GitHub 访问慢，用镜像（二选一）
 irm https://raw.gitmirror.com/Tght1211/lan-proxy-gateway/main/install.ps1 | iex
 irm https://mirror.ghproxy.com/https://raw.githubusercontent.com/Tght1211/lan-proxy-gateway/main/install.ps1 | iex
 ```
 
-脚本会自动检测网络环境，GitHub 直连超时时自动切换镜像下载二进制文件。macOS 安装到 `/usr/local/bin`，Linux 安装到 `/usr/local/bin` 或 `~/.local/bin`，Windows 安装到 `%LOCALAPPDATA%\Programs\gateway`。
+脚本会自动完成所有安装，**不需要提前安装任何依赖**。
 
-> **如果以上命令都下载不了脚本？** 直接复制本项目中的文件内容到服务器上：
->
-> **mihomo 安装**（必须先完成）：
-> ```bash
-> # 1. 复制以下内容到 download-mihomo.sh 并保存
-> vim download-mihomo.sh
-> # 粘贴 https://raw.githubusercontent.com/Tght1211/lan-proxy-gateway/main/download-mihomo.sh 内容
-> chmod +x download-mihomo.sh
-> ./download-mihomo.sh
-> ```
->
-> **gateway 安装**：
-> ```bash
-> # 2. 复制以下内容到 install.sh 并保存
-> vim install.sh
-> # 粘贴 https://raw.githubusercontent.com/Tght1211/lan-proxy-gateway/main/install.sh 内容
-> chmod +x install.sh
-> ./install.sh
-> ```
->
-> **终极方案**：在其他能访问 GitHub 的机器下载 mihomo，然后 scp 传到服务器：
-> ```bash
-> # 本地下载
-> wget https://github.com/MetaCubeX/mihomo/releases/download/v1.19.8/mihomo-linux-amd64
-> # 上传到服务器
-> scp mihomo root@你的服务器IP:/usr/local/bin/
-> ssh root@你的服务器IP "chmod +x /usr/local/bin/mihomo"
-> ```
+---
 
-**方式二：手动下载**
+### 备用方式：手动下载
 
-从 [Releases](https://github.com/Tght1211/lan-proxy-gateway/releases) 下载对应你系统的文件：
+如果脚本无法运行，去 [Releases 页面](https://github.com/Tght1211/lan-proxy-gateway/releases) 直接下载对应你系统的文件：
 
 | 你的电脑 | 下载哪个文件 |
-|----------|-------------|
-| **Mac（Apple 芯片：M1/M2/M3/M4）** | `gateway-darwin-arm64` |
-| **Mac（Intel 芯片）** | `gateway-darwin-amd64` |
-| **Linux（x86_64）** | `gateway-linux-amd64` |
-| **Linux（ARM，如树莓派）** | `gateway-linux-arm64` |
-| **Windows** | `gateway-windows-amd64.exe` |
+|---------|------------|
+| Mac（M1 / M2 / M3 / M4 芯片） | `gateway-darwin-arm64` |
+| Mac（Intel 芯片） | `gateway-darwin-amd64` |
+| Linux（x86_64） | `gateway-linux-amd64` |
+| Linux（ARM，如树莓派） | `gateway-linux-arm64` |
+| Windows | `gateway-windows-amd64.exe` |
 
-> 不确定 Mac 是哪种芯片？点左上角  → "关于本机"，看到 M1/M2/M3/M4 就选 arm64，看到 Intel 就选 amd64。
+> **不确定 Mac 是哪种芯片？** 点左上角苹果图标 → "关于本机"，看到 M1/M2/M3/M4 选 arm64，看到 Intel 选 amd64。
 
-下载后放到 PATH 中即可：
+下载后，macOS / Linux 需要额外执行：
 
 ```bash
-# macOS / Linux 示例
-chmod +x gateway-*        # 添加执行权限
-sudo mv gateway-* /usr/local/bin/gateway   # 移到 PATH 中
+chmod +x gateway-*                         # 给文件添加执行权限
+sudo mv gateway-* /usr/local/bin/gateway   # 移到系统路径，方便全局使用
 ```
 
-**方式三：从源码编译**（需要 [Go 1.21+](https://go.dev/dl/)）
+---
+
+## 第二步：初始化配置
+
+安装完成后，运行初始化向导：
 
 ```bash
-git clone https://github.com/Tght1211/lan-proxy-gateway.git
-cd lan-proxy-gateway
-make install   # 编译并安装到 /usr/local/bin（会要求输入 sudo 密码）
-```
-
-### 三步完成
-
-```bash
-# 1. 安装向导（自动下载 mihomo，引导配置代理来源）
 gateway install
-
-# 2. 启动网关
-sudo gateway start
-
-# 3. 查看状态
-gateway status
 ```
 
-> 安装向导会自动下载并安装 mihomo 代理内核。如果遇到网络问题，会自动尝试镜像源下载。
+向导会依次引导你：
 
-启动后终端会显示你的 IP，把其他设备的**网关**和 **DNS** 改成这个 IP 就行了。
+1. **自动下载 mihomo 内核**（代理核心程序，会自动选择最快的下载源）
+2. **选择代理来源**：输入你的订阅链接，或指定本地配置文件路径
+3. **生成配置文件**：自动完成，无需手动编辑
 
-### 日常使用
+整个过程约 1～3 分钟，跟着提示走就行。
 
-```bash
-gateway status               # 查看状态：节点、连接数、流量
-sudo gateway start           # 启动网关
-sudo gateway stop            # 停止网关
-sudo gateway restart         # 重启网关
-sudo gateway update          # 一键升级到最新版本
-sudo gateway health          # 健康检查，异常时自动修复
-gateway switch               # 查看当前代理来源
-gateway switch url           # 切换到订阅链接模式
-gateway switch file /path    # 切换到配置文件模式
-gateway tun on               # 开启 TUN 透明代理模式（需重启生效）
-gateway tun off              # 关闭 TUN 模式（默认）
-sudo gateway service install # 开机自启动 + 定时健康检查
-```
+---
 
-## 代理来源
-
-支持两种代理来源，可随时切换：
-
-| 模式 | 说明 | 用法 |
-|------|------|------|
-| **订阅链接** | 机场提供的 Clash/mihomo URL，自动拉取节点 | `gateway switch url` |
-| **配置文件** | 本地 Clash/mihomo YAML 文件，自动提取 proxies | `gateway switch file /path/to/config.yaml` |
-
-## 设备配置
-
-启动后，在需要科学上网的设备上，把网络设置改为**手动**：
-
-| 设置项 | 填什么 |
-|--------|--------|
-| IP 地址 | 同网段随便一个没用过的 IP（如 `192.168.1.100`） |
-| 子网掩码 | `255.255.255.0` |
-| 网关 | 网关电脑的 IP（`gateway start` 会告诉你） |
-| DNS | 网关电脑的 IP（同上） |
-
-> **各设备详细设置指南：**
-> - [Nintendo Switch](docs/switch-setup.md)
-> - [Apple TV](docs/appletv-setup.md)
-> - [PS5 / Xbox](docs/ps5-setup.md)
-> - [iPhone / Android 手机](docs/phone-setup.md)
-
-## 工作原理
-
-```mermaid
-flowchart LR
-    Device["📱 LAN 设备"] --> Mac["🖥 网关电脑<br/>IP 转发"]
-    Mac --> TUN["mihomo<br/>TUN 虚拟网卡"]
-    TUN --> Rules{"智能分流"}
-    Rules -- "国内流量" --> Direct["🇨🇳 直连"]
-    Rules -- "国外流量" --> Proxy["🌐 代理节点"]
-    Rules -- "广告" --> Block["🚫 拦截"]
-
-    style Mac fill:#2d9e2d,color:#fff,stroke:#1a7a1a
-    style TUN fill:#3498db,color:#fff,stroke:#2980b9
-    style Rules fill:#f39c12,color:#fff,stroke:#d68910
-    style Direct fill:#27ae60,color:#fff,stroke:#1e8449
-    style Proxy fill:#8e44ad,color:#fff,stroke:#6c3483
-    style Block fill:#e74c3c,color:#fff,stroke:#c0392b
-```
-
-1. 网关电脑开启 IP 转发，充当局域网网关
-2. mihomo 以 TUN 模式运行，创建虚拟网卡透明接管所有流量
-3. 智能分流：国内网站直连、国外走代理、广告直接拦截
-4. 节点通过 `proxy-providers` 自动拉取，无需手动配置
-
-## 跨平台支持
-
-| 平台 | IP 转发 | 防火墙 | 系统服务 | 状态 |
-|------|---------|--------|----------|------|
-| **macOS** | `sysctl` | `pfctl` | launchd | 已验证 |
-| **Linux** | `/proc/sys` | — | systemd | 已实现 |
-| **Windows** | `netsh` | — | `sc.exe` | 已实现 |
-
-交叉编译：
-
-```bash
-make build-all   # 一次编译 5 个平台二进制（dist/ 目录下）
-```
-
-## 配置文件
-
-安装向导会自动生成 `gateway.yaml`，你也可以手动编辑：
-
-```yaml
-proxy_source: url                     # "url" 或 "file"
-subscription_url: "https://..."       # 订阅链接
-# proxy_config_file: /path/to/config  # 本地配置文件
-subscription_name: subscription
-ports:
-  mixed: 7890
-  redir: 7892
-  api: 9090
-  dns: 53
-api_secret: ""
-tun_enabled: false                    # TUN 透明代理模式，用 gateway tun on/off 控制
-# script_path: /etc/gateway/script.js  # 扩展脚本（可选，见下方说明）
-```
-
-> 从旧版 `.secret` 格式迁移？运行 `gateway install` 会自动检测并迁移。
-
-## 扩展脚本（进阶功能）
-
-如果你的机场订阅无法满足特殊需求，可以通过扩展脚本对生成的配置做二次加工。
-
-**典型场景举例：**
-- 订阅里没有住宅 IP / 静态 IP 节点，但你另外购买了住宅代理，想让 AI 网站（Claude、ChatGPT）走住宅 IP
-- 需要把某个公司内网域名强制直连，绕过代理
-- 订阅的分流规则不满意，想在最前面插入自定义规则
-
-### 脚本格式
-
-脚本格式与 **Clash Verge Rev 扩展脚本**完全兼容，是一个包含 `main` 函数的 JS 文件：
-
-```js
-// 脚本接收当前生成的 mihomo 配置（已解析为 JS 对象）
-// 修改后 return 回去，网关会用你修改后的配置启动
-function main(config) {
-  // 在所有规则最前面插入一条直连规则
-  config.rules = [
-    "DOMAIN-SUFFIX,example.com,DIRECT",
-    ...config.rules
-  ];
-  return config;
-}
-```
-
-### 如何启用
-
-**第一步：创建你的脚本文件**
-
-项目根目录有一个现成的示例脚本 `script.js`，可以直接修改使用。它的功能是：添加一个住宅代理节点，让 Claude、ChatGPT、Cursor 等 AI 服务走住宅 IP。
-
-把 `script.js` 复制到你想存放的位置（比如 `/etc/gateway/script.js`），然后用文本编辑器打开，修改顶部的用户配置区：
-
-```js
-const PROXY_SERVER   = "你的住宅代理IP";   // 修改为你的住宅代理 IP
-const PROXY_PORT     = 443;                 // 修改为你的端口
-const PROXY_USERNAME = "你的用户名";        // 修改为你的用户名
-const PROXY_PASSWORD = "你的密码";          // 修改为你的密码
-const PROXY_TYPE     = "socks5";            // 代理协议，通常是 socks5 或 http
-const AIRPORT_GROUP  = "你的机场分组名";    // 机场订阅中的代理组名称，如 "自动选择"
-```
-
-**第二步：在 `gateway.yaml` 中指定脚本路径**
-
-用文本编辑器打开 `gateway.yaml`，在文件末尾加一行：
-
-```yaml
-script_path: /etc/gateway/script.js
-```
-
-路径填你第一步保存脚本的位置。
-
-**第三步：重新生成配置并重启**
+## 第三步：启动网关
 
 ```bash
 sudo gateway start
 ```
 
-启动时会自动执行脚本，生效后在 Web 面板（`http://网关IP:9090/ui`）里能看到脚本注入的代理节点和规则。
+> macOS / Linux 需要 `sudo`，因为 TUN 模式要创建虚拟网卡，这是系统级操作。Windows 请在管理员模式下运行。
 
-**第四步：验证脚本是否生效**
+**启动成功后，终端会显示你电脑的 IP 地址**，类似这样：
 
-```bash
-# 查看生成的配置文件，确认脚本的改动已经写入
-cat ~/.config/gateway/data/config.yaml | grep -A5 "AI Only"
+```
+✓ 网关已启动
+  本机 IP：192.168.1.2
+  将其他设备的「网关」和「DNS」都改成这个 IP 即可
 ```
 
-如果看到脚本中定义的代理组，说明生效了。
+**记下这个 IP**（例如 `192.168.1.2`），后面配置其他设备会用到。
 
-### 注意事项
+> **不知道自己电脑 IP？** 随时可以运行 `gateway status` 查看。
 
-- 脚本每次执行 `gateway start` 或 `gateway switch` 时都会自动重新运行
-- 脚本有语法错误时，网关会停止启动并显示错误信息，检查脚本后重试
-- 不需要扩展脚本时，删除 `gateway.yaml` 中的 `script_path` 那一行即可
-- 脚本里不要写 `require()`，只支持纯 JavaScript 逻辑（ES6+ 语法均支持）
+---
 
-## 隐私安全
+## 第四步：设置你的设备
 
-你的订阅链接是敏感信息。本项目做了隔离，确保不会泄露：
+选择你要配置的设备，按对应指南操作：
 
-| 文件 | 会上传 GitHub 吗 | 内容 |
-|------|:---:|------|
-| `embed/template.yaml` | Yes | 只有配置框架，`{{变量}}` 占位 |
-| `gateway.yaml` | **No** | 你的订阅 URL，仅存本地 |
-| `data/config.yaml` | **No** | 运行时自动生成，包含实际配置 |
+- [iPhone / iPad](#iphone--ipad)
+- [Android 手机 / 平板](#android-手机--平板)
+- [Nintendo Switch](#nintendo-switch)
+- [PS5](#ps5)
+- [Apple TV](#apple-tv)
+- [智能电视（安卓系统）](#智能电视安卓系统)
 
-## 稳定性保障
+---
 
-网关长期运行难免遇到网络波动，项目内置了多层稳定性保障：
+### iPhone / iPad
+
+> 配置完成后，无需安装任何 App，打开 Safari 或 YouTube 直接用。
+
+**步骤：**
+
+1. 打开「设置」→「Wi-Fi」
+2. 点击已连接的 Wi-Fi 名称右侧的 **①（圆圈 i）** 按钮
+3. 找到「配置 IP」，点击改为**手动**，填写：
+
+   | 字段 | 填什么 |
+   |------|-------|
+   | IP 地址 | 随便填一个同网段没被占用的 IP，如 `192.168.1.100` |
+   | 子网掩码 | `255.255.255.0` |
+   | 路由器 | **你电脑的 IP**（如 `192.168.1.2`） |
+
+4. 往下找「配置 DNS」，点击改为**手动**：
+   - 删掉原有的 DNS 地址
+   - 点「添加服务器」，填入**你电脑的 IP**（如 `192.168.1.2`）
+
+5. 点右上角「**存储**」
+
+6. 验证：打开浏览器访问 [google.com](https://google.com)，能打开就成功了 ✓
+
+> **IP 地址怎么填？** 要和你电脑在同一网段。例如电脑 IP 是 `192.168.1.2`，你的手机就填 `192.168.1.xxx`（100～200 之间随便一个，避开已有设备的 IP 就行）。
+
+---
+
+### Android 手机 / 平板
+
+> 不同品牌界面略有差异，以下为通用步骤。华为 / 小米 / OPPO / 三星大同小异。
+
+**步骤：**
+
+1. 打开「设置」→「WLAN」（或「Wi-Fi」）
+2. **长按**已连接的 Wi-Fi 名称 → 选「修改网络」（部分机型是点旁边的设置齿轮图标）
+3. 勾选「**显示高级选项**」（或点「高级」）
+4. 将「IP 设置」从 **DHCP** 改为**静态**，填写：
+
+   | 字段 | 填什么 |
+   |------|-------|
+   | IP 地址 | 同网段未被占用的 IP，如 `192.168.1.101` |
+   | 网关 | **你电脑的 IP**（如 `192.168.1.2`） |
+   | 网络前缀长度 | `24` |
+   | DNS 1 | **你电脑的 IP**（如 `192.168.1.2`） |
+   | DNS 2 | `8.8.8.8`（可选） |
+
+5. 点「**保存**」
+
+6. 验证：打开浏览器访问 [google.com](https://google.com)，能打开就成功了 ✓
+
+> **注意：** 部分 Android 机型（如某些华为）在设置界面上叫「路由器」而不是「网关」，填的内容一样。
+
+---
+
+### Nintendo Switch
+
+> **Switch 的特殊说明：** 实测只需要改网关，**不要改 DNS**，改了 DNS 反而会导致连接异常。这是 Switch 的网络实现问题，保持 DNS 自动获取即可正常使用 YouTube 和 eShop。
+
+**步骤：**
+
+1. 主页 → 「设置」→「互联网」→「互联网设置」
+2. 选择你的 Wi-Fi 网络 → 点「**更改设置**」
+3. 将「IP 地址设置」改为「**手动**」，填写：
+
+   | 字段 | 填什么 |
+   |------|-------|
+   | IP 地址 | 同网段未被占用的 IP，如 `192.168.1.102` |
+   | 子网掩码 | `255.255.255.0` |
+   | 网关 | **你电脑的 IP**（如 `192.168.1.2`） |
+
+4. 「DNS 设置」**保持「自动」，不要改**
+
+5. 点「**保存**」→「连接到此网络」
+
+6. 验证：打开 Nintendo eShop 或 YouTube，能正常加载就成功了 ✓
+
+**关于 NAT 类型：**
+通过网关代理后，Switch 的 NAT 类型通常显示为 B 或 C，这是正常的。绝大多数游戏联机不受影响。如果特定游戏匹配有问题，尝试切换代理节点。
+
+---
+
+### PS5
+
+**步骤：**
+
+1. 「设置」→「网络」→「设定网络连接」
+2. 选择你的 Wi-Fi 网络，弹出选项后选「**手动设定**」（如已连接，按 Options 键 → 设定）
+3. 「IP 地址设定」改为「**手动**」：
+
+   | 字段 | 填什么 |
+   |------|-------|
+   | IP 地址 | 同网段未被占用的 IP，如 `192.168.1.103` |
+   | 子网掩码 | `255.255.255.0` |
+   | 默认网关 | **你电脑的 IP**（如 `192.168.1.2`） |
+
+4. 「DNS 设定」改为「**手动**」：
+
+   | 字段 | 填什么 |
+   |------|-------|
+   | 主 DNS | **你电脑的 IP**（如 `192.168.1.2`） |
+   | 副 DNS | `8.8.8.8` |
+
+5. MTU 设定：「**自动**」；代理服务器：「**不使用**」
+
+   > 重要：代理服务器一定选「不使用」，流量已经通过网关透明转发了，再设代理会冲突。
+
+6. 完成后选「**测试网络连接**」
+
+7. 验证：打开 PlayStation Store，能正常浏览就成功了 ✓
+
+**关于 NAT 类型：**
+通过网关后通常显示 Type 2（中等），极少情况 Type 3（严格）。Type 2 下绝大多数游戏联机完全正常。
+
+---
+
+### Apple TV
+
+**步骤：**
+
+1. 「设置」→「网络」→「Wi-Fi」
+2. 点击当前连接的 Wi-Fi 网络名称
+3. 找到「配置 IP」，改为「**手动**」：
+
+   | 字段 | 填什么 |
+   |------|-------|
+   | IP 地址 | 同网段未被占用的 IP，如 `192.168.1.104` |
+   | 子网掩码 | `255.255.255.0` |
+   | 路由器 | **你电脑的 IP**（如 `192.168.1.2`） |
+
+4. 找到「配置 DNS」，改为「**手动**」：
+   - 将 DNS 地址改为**你电脑的 IP**（如 `192.168.1.2`）
+
+5. 返回上一级，Apple TV 会自动应用配置
+
+6. 验证：打开 YouTube 或 Netflix，能正常播放就成功了 ✓
+
+**关于 Netflix：**
+Netflix 对代理检测较严格，需要选择支持"解锁流媒体"的节点。通过管理面板（`http://你电脑的IP:9090/ui`）切换节点，找带"流媒体"或"解锁"标签的节点尝试。
+
+---
+
+### 智能电视（安卓系统）
+
+大多数智能电视（小米电视、海信、TCL、索尼 Android TV、飞利浦等）运行安卓系统，步骤和 Android 手机类似。
+
+**步骤：**
+
+1. 打开电视「设置」→「网络」→「Wi-Fi」
+2. 点击已连接的 Wi-Fi 名称（通常长按或按遥控器菜单键可见「高级设置」）
+3. 将 IP 设置改为「**静态**」或「**手动**」，填写：
+
+   | 字段 | 填什么 |
+   |------|-------|
+   | IP 地址 | 同网段未被占用的 IP，如 `192.168.1.105` |
+   | 子网掩码 | `255.255.255.0` |
+   | 网关 | **你电脑的 IP**（如 `192.168.1.2`） |
+   | DNS 1 | **你电脑的 IP**（如 `192.168.1.2`） |
+   | DNS 2 | `8.8.8.8`（可选） |
+
+4. 保存并重新连接 Wi-Fi
+
+5. 验证：打开 YouTube 或其他流媒体 App，能正常播放就成功了 ✓
+
+> **找不到高级设置？** 部分电视需要在 Wi-Fi 列表里长按当前连接的网络才能进入设置，或进入「设置」→「关于」→「网络信息」里修改。不同品牌差异较大，可以搜索「[你的电视品牌型号] 手动设置 IP」找到对应教程。
+
+---
+
+## 完整命令说明
+
+### 基础操作
+
+| 命令 | 说明 | 需要管理员权限 |
+|------|------|:---:|
+| `gateway install` | 初始化向导：下载 mihomo、配置代理来源、生成配置文件 | 否 |
+| `sudo gateway start` | 启动网关（开启 IP 转发、启动 mihomo） | ✓ |
+| `sudo gateway stop` | 停止网关（关闭 mihomo、清理路由规则） | ✓ |
+| `sudo gateway restart` | 重启网关（等同于 stop + start） | ✓ |
+| `gateway status` | 查看运行状态：节点、连接数、上下行流量、本机 IP | 否 |
+
+### 维护与升级
+
+| 命令 | 说明 | 需要管理员权限 |
+|------|------|:---:|
+| `sudo gateway health` | 健康检查：检测进程 / TUN 接口 / API，异常时自动重启修复 | ✓ |
+| `sudo gateway update` | 一键升级到最新版本（自动下载、替换、重启），GitHub 超时自动切换镜像 | ✓ |
+
+### 切换代理来源
+
+| 命令 | 说明 |
+|------|------|
+| `gateway switch` | 查看当前代理来源（url 或 file 模式） |
+| `gateway switch url` | 切换到订阅链接模式（需在 `gateway.yaml` 中已配置 `subscription_url`） |
+| `gateway switch file /path/to/config.yaml` | 切换到本地 Clash/mihomo 配置文件模式，自动提取 proxies 节点 |
+
+### TUN 模式控制
+
+| 命令 | 说明 |
+|------|------|
+| `gateway tun on` | 开启 TUN 透明代理模式（**Switch / PS5 / 电视 要走代理必须开启**），需重启生效 |
+| `gateway tun off` | 关闭 TUN 模式（默认），改为规则模式 |
+
+> TUN 模式是什么：开启后 mihomo 会创建一块虚拟网卡，接管所有流经网关的流量，实现真正的透明代理。**让其他设备科学上网必须开启 TUN 模式。** 如果本机同时运行 Clash Verge 且也开了 TUN，两者会冲突——先关掉 Clash Verge 的 TUN。
+
+### 开机自启动服务
+
+| 命令 | 说明 | 需要管理员权限 |
+|------|------|:---:|
+| `sudo gateway service install` | 安装系统服务：开机自动启动 + 崩溃自动重启（macOS 用 launchd，Linux 用 systemd，Windows 用 sc.exe） | ✓ |
+| `sudo gateway service uninstall` | 卸载系统服务 | ✓ |
+
+### 全局参数
+
+所有命令都支持以下参数（放在命令后面）：
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `--config <路径>` | 指定配置文件路径 | 当前目录的 `gateway.yaml` |
+| `--data-dir <路径>` | 指定数据目录路径（存放 mihomo 运行配置） | 当前目录的 `data/` |
+
+**示例：**
+
+```bash
+# 使用自定义配置文件路径
+sudo gateway start --config /etc/gateway/gateway.yaml --data-dir /var/lib/gateway
+```
+
+---
+
+## 管理面板（Web UI）
+
+网关运行后，浏览器打开以下地址即可看到图形化管理界面：
+
+```
+http://你电脑的IP:9090/ui
+```
+
+例如：`http://192.168.1.2:9090/ui`
+
+在这里可以：
+- 查看所有代理节点及延迟
+- 手动切换节点（Netflix 被封时在这里换节点）
+- 查看实时连接和流量统计
+
+---
+
+## 关机后怎么办
+
+**电脑关机或停止网关后，其他设备会断网。**
+
+需要把设备的网络设置改回"自动获取"：
+
+| 设备 | 操作 |
+|-----|------|
+| iPhone | 设置 → Wi-Fi → ① → 配置 IP → 自动；配置 DNS → 自动 |
+| Android | 设置 → WLAN → 长按网络 → 修改 → IP 设置改回 DHCP |
+| Switch | 设置 → 互联网 → 互联网设置 → Wi-Fi → 更改设置 → 全部改回自动 |
+| PS5 | 设置 → 网络 → 设定网络连接 → 重新连接 Wi-Fi（会自动获取） |
+| Apple TV | 设置 → 网络 → Wi-Fi → 配置 IP → 自动；配置 DNS → 自动 |
+| 智能电视 | 设置 → 网络 → Wi-Fi → IP 设置改回 DHCP / 自动 |
+
+> **最简单的办法：** 忘记 Wi-Fi 并重新连接，系统会自动恢复 DHCP 获取 IP。
+
+---
+
+## 常见问题
+
+**Q：配好之后能上网，但访问国外网站还是慢？**
+> 可能是代理节点的问题。打开管理面板 `http://你电脑的IP:9090/ui`，测试各节点延迟，换一个延迟低的节点试试。
+
+**Q：国内 App 会变慢吗？**
+> 不会。工具内置了智能分流规则：国内流量直连，国外流量走代理，广告直接拦截。国内网站速度和平时完全一样。
+
+**Q：PS5 / Switch NAT 类型变差了，游戏联机会受影响吗？**
+> 大多数游戏不受影响。如果特定游戏联机有问题，在管理面板切换节点，或临时把游戏机的网络改回自动（直连路由器）。
+
+**Q：Apple TV 看 Netflix 显示地区错误怎么办？**
+> Netflix 只能用支持解锁流媒体的节点。在管理面板 `http://你电脑的IP:9090/ui` 里，找带"解锁"、"流媒体"标签的节点切换。
+
+**Q：设备完全连不上网（不只是国外网站打不开）？**
+> 按顺序检查：① 运行 `gateway status` 确认网关正在运行；② 确认设备的网关和 DNS 都填了你电脑的 IP；③ 确认 IP 地址的前三段和电脑一致（如都是 `192.168.1.x`）；④ 电脑上先 `sudo gateway stop` 再 `sudo gateway start` 重启一次。
+
+**Q：Windows 上能用吗？**
+> 完整支持。Windows 上的实现：IP 转发通过 `netsh` 命令开启，系统服务通过 `sc.exe` 管理（开机自启、崩溃自动重启）。运行时请用"以管理员身份运行"的 PowerShell 或命令提示符，等同于 macOS 的 `sudo`。
+
+**Q：能安装在路由器上吗？**
+> 取决于路由器的系统和硬件：
+>
+> **可行的情况：**
+> - 运行完整 Linux 的高性能路由器（如搭载 x86 或 ARM 的 iKuai、OpenWrt 等，内存 ≥ 256MB）
+> - 群晖 / QNAP 等 NAS 设备（本质是 Linux，完全支持）
+> - GL.iNet 路由器（本身就跑 OpenWrt，有 SSH，可以跑 linux-arm64 版本）
+>
+> **操作方式：** SSH 进路由器，下载对应架构的 `gateway-linux-arm64`（或 amd64），放到 `/usr/local/bin/`，然后像在 Linux 上一样使用。
+>
+> **不可行的情况：**
+> - 普通家用路由器（华为、小米、TP-Link 等消费级产品），系统是深度定制的 Linux，没有 systemd，功能残缺，无法运行
+> - 内存 < 128MB 的路由器，mihomo 本身需要一定内存
+>
+> **推荐做法：** 路由器能用是最优解（全屋透明代理，不需要任何设备改网关），但如果路由器不支持，用一台 Mac Mini / 低功耗小主机 / 树莓派来跑本工具效果完全一样。
+
+**Q：必须用 Mac 吗？**
+> 不是。Mac / Linux / Windows 都支持。Mac Mini 功耗低适合长期开着，但任何电脑都行。
+
+**Q：需要 sudo 是什么意思，安全吗？**
+> sudo 是 macOS / Linux 上的管理员权限命令。TUN 模式需要创建虚拟网卡和修改路由表，这是系统级操作，必须有管理员权限。程序本身是开源的，代码可在 GitHub 审阅。
+
+**Q：订阅链接会上传到云端吗？**
+> 不会。订阅链接保存在你本地电脑的 `gateway.yaml` 文件中，不会上传任何地方。`.gitignore` 已经排除该文件。
+
+**Q：和软路由比有什么优缺点？**
+> | | LAN Proxy Gateway | 软路由 |
+> |---|---|---|
+> | 成本 | 利用现有电脑，零额外成本 | 需要另购设备（几百～几千元） |
+> | 上手难度 | 几条命令，跟着教程走 | 刷固件 + 配置 OpenWrt，门槛较高 |
+> | 稳定性 | 依赖电脑保持开机 | 专用设备，更适合 7×24 运行 |
+> | 适合谁 | 家里有闲置电脑的用户 | 追求极致稳定 / 全天候在线 |
+
+---
+
+## 进阶：开机自启与稳定性
+
+安装系统服务后，电脑重启后网关自动启动，崩溃后自动恢复：
+
+```bash
+sudo gateway service install
+```
+
+内置稳定性保障：
 
 | 机制 | 说明 |
 |------|------|
-| **节点健康检查** | 每 120 秒自动检测节点可用性，失效自动切换 |
-| **Fallback 兜底** | Auto 节点不可用时自动降级到 Fallback 组 |
-| **进程崩溃自愈** | launchd / systemd 检测到崩溃后自动重启 |
-| **定时健康检查** | 安装服务后每天 4:00 和 12:00 自动执行 `gateway health` |
-| **日志轮转** | 每次启动自动轮转旧日志，保留最近 3 份，防止磁盘占满 |
-| **IPv6 禁用** | 避免 IPv6 不通导致的连接超时（大多数家庭网络不支持 IPv6） |
-| **一键升级** | `sudo gateway update` 自动下载最新版本并重启 |
+| 节点健康检查 | 每 120 秒检测节点可用性，失效自动切换 |
+| 进程崩溃自愈 | launchd / systemd 检测到崩溃后自动重启 |
+| 定时健康检查 | 每天 4:00 和 12:00 自动执行健康检查 |
+| 日志轮转 | 自动保留最近 3 份日志，防止磁盘占满 |
+| 一键升级 | `sudo gateway update` 自动更新到最新版本 |
 
-## 项目结构
+---
 
-```
-lan-proxy-gateway/
-├── main.go                       # 入口
-├── cmd/                          # CLI 子命令
-│   ├── root.go                   # 根命令 + 全局 flag
-│   ├── install.go                # gateway install
-│   ├── start.go                  # gateway start
-│   ├── stop.go                   # gateway stop
-│   ├── restart.go                # gateway restart
-│   ├── status.go                 # gateway status
-│   ├── switch.go                 # gateway switch
-│   ├── update.go                 # gateway update（一键升级）
-│   ├── health.go                 # gateway health（健康检查）
-│   └── service.go                # gateway service install/uninstall
-├── internal/
-│   ├── platform/                 # 跨平台抽象 (darwin/linux/windows)
-│   ├── config/                   # 配置管理 + .secret 迁移
-│   ├── mihomo/                   # API 客户端 + GeoIP 下载
-│   ├── template/                 # 模板渲染（含脚本应用）
-│   ├── script/                   # JS 扩展脚本执行引擎
-│   ├── proxy/                    # 代理节点提取
-│   └── ui/                       # 终端彩色输出
-├── embed/template.yaml           # mihomo 配置模板 (go:embed)
-├── gateway.example.yaml          # 配置文件示例
-├── script.js                     # 扩展脚本示例（住宅代理 + AI 分流）
-├── Makefile                      # 构建脚本
-└── docs/                         # 设备设置指南
-```
+## 进阶：扩展脚本（高级用户）
 
-## FAQ
+如果你有特殊需求，比如：
+- 让 ChatGPT / Claude 单独走住宅 IP 节点
+- 把公司内网域名强制直连
+- 在订阅规则前面插入自定义规则
 
-**Q: 必须用 Mac 吗？**
-> 不是。macOS / Linux / Windows 都支持。Mac Mini 功耗低适合常驻，但任何电脑都行。
+可以通过扩展脚本实现。脚本格式与 Clash Verge Rev 完全兼容。详情见 [gateway.example.yaml](gateway.example.yaml) 中的 `script_path` 配置说明。
 
-**Q: 为什么要 sudo？**
-> TUN 模式需要创建虚拟网卡和修改系统路由表，这些是系统级操作。
-
-**Q: Apple TV 看 Netflix 会卡吗？**
-> 取决于你的代理节点质量。节点够快的话 4K 没问题。可以通过 Web 面板（`http://网关IP:9090/ui`）切换节点。
-
-**Q: 怎么切换节点？**
-> 浏览器打开 `http://网关IP:9090/ui`（mihomo 管理面板），或运行 `gateway status` 查看当前节点。
-
-**Q: 怎么切换订阅链接和配置文件？**
-> `gateway switch url` 或 `gateway switch file /path/to/config.yaml`，一条命令搞定。
-
-**Q: 关掉网关电脑后其他设备怎么办？**
-> 需要把设备的网络设置改回"自动获取"，否则无法上网。
-
-**Q: 怎么升级到最新版本？**
-> `sudo gateway update`，自动下载、替换、重启，一条命令搞定。GitHub 直连超时时会自动切换镜像。
-
-**Q: 长时间运行会不稳定吗？**
-> 安装服务后（`sudo gateway service install`），系统会在崩溃时自动重启，并在每天 4:00 和 12:00 自动执行健康检查。也可以随时手动 `sudo gateway health` 检查。
-
-**Q: 扩展脚本是什么，我需要它吗？**
-> 不一定需要。如果你的机场订阅本身能满足需求，不配置脚本也能正常使用。脚本是为有特殊需求的用户准备的，比如：另购了住宅代理想让 AI 服务单独走住宅 IP、需要把公司内网域名强制直连等场景。
-
-**Q: 脚本写错了怎么办，网关起不来了？**
-> 删掉 `gateway.yaml` 里的 `script_path: ...` 那一行，然后重新运行 `sudo gateway start`，网关就能正常启动了。修好脚本后再把那行加回来。
-
-**Q: 扩展脚本安全吗？**
-> 脚本在本地执行，只能读取和修改 mihomo 配置数据，不能访问网络或文件系统。用别人提供的脚本前，建议自己看一下代码内容。
-
-**Q: 和软路由比有什么优缺点？**
-> | | LAN Proxy Gateway | 软路由 |
-> |---|---|---|
-> | 成本 | 利用现有电脑，零成本 | 需要额外买设备 |
-> | 配置难度 | 一个 CLI 命令 | 刷固件 + 配置 OpenWrt |
-> | 跨平台 | macOS / Linux / Windows | 通常仅 Linux |
-> | 稳定性 | 崩溃自愈 + 定时健康检查 | 专用设备更稳定 |
-> | 适合场景 | 家里有闲置电脑的用户 | 追求 7×24 极致稳定 |
+---
 
 ## License
 
