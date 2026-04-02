@@ -46,31 +46,6 @@ graph TD
     style Phone fill:#95a5a6,color:#fff,stroke:#7f8c8d
 ```
 
-## 为什么值得用
-
-很多设备并不适合直接装代理：
-
-- Switch、PS5、Apple TV、智能电视本身就难装
-- 手机、平板、备用机不想每台都重复配置
-- 路由器刷机成本高，软路由又多一台设备
-
-LAN Proxy Gateway 的思路很简单：
-
-1. 让电脑接管局域网设备的出口
-2. 把分流、规则、节点、链式代理都收进一个 CLI 系统里
-
-## 和 Clash Verge 的“允许局域网连接”有什么区别
-
-| 对比项 | Clash Verge 局域网代理 | LAN Proxy Gateway |
-|---|---|---|
-| 代理层级 | 应用层代理 | 网络层透明代理 |
-| 设备配置方式 | 填代理服务器地址 | 改网关和 DNS |
-| Switch / Apple TV / PS5 | 部分场景受限 | 更适合整机透明接管 |
-| App 是否感知代理 | 往往能感知 | 更接近真实网关 |
-| 典型使用方式 | 单设备代理 | 全屋设备共享 |
-
-如果你更看重“家里别的设备一起用”，这个项目更接近软路由体验。
-
 ## 核心能力
 
 ### 1. 局域网透明共享
@@ -111,11 +86,13 @@ LAN Proxy Gateway 的思路很简单：
 
 ## 3 分钟快速开始
 
-### 1. 安装
+### 第 1 步：安装
 
-中国大陆网络优先用 CDN 入口：
+先把 `gateway` 装到本机。中国大陆网络优先用 CDN 入口。
 
 #### macOS / Linux
+
+推荐：
 
 ```bash
 curl -fsSL https://cdn.jsdelivr.net/gh/Tght1211/lan-proxy-gateway@main/install.sh | bash
@@ -128,6 +105,8 @@ curl -fsSL https://raw.githubusercontent.com/Tght1211/lan-proxy-gateway/main/ins
 ```
 
 #### Windows PowerShell
+
+推荐：
 
 ```powershell
 irm https://cdn.jsdelivr.net/gh/Tght1211/lan-proxy-gateway@main/install.ps1 | iex
@@ -145,25 +124,31 @@ irm https://raw.githubusercontent.com/Tght1211/lan-proxy-gateway/main/install.ps
 GITHUB_MIRROR=https://hub.gitmirror.com/ bash install.sh
 ```
 
-### 2. 初始化
+### 第 2 步：初始化配置
 
 ```bash
 gateway install
 ```
 
-向导会帮你完成：
+安装向导会依次完成：
 
 1. 下载 `mihomo`
 2. 录入订阅链接或本地配置文件
 3. 生成 `gateway.yaml`
 
-### 3. 启动
+如果你只想最快跑起来，按提示填完这三个信息就够了：
+
+- 代理来源
+- 订阅链接或本地配置文件
+- 订阅名称
+
+### 第 3 步：启动网关
 
 ```bash
 sudo gateway start
 ```
 
-启动成功后会显示：
+启动成功后终端会直接显示：
 
 - 当前读取的配置文件路径
 - 局域网共享入口 IP
@@ -171,20 +156,35 @@ sudo gateway start
 - 出口摘要
 - 运行中 TUI 控制台
 
-### 4. 让其他设备接入
+这一步里最重要的是记住你的局域网 IP。
+
+### 第 4 步：让其他设备接入
 
 把设备的：
 
 - `网关 (Gateway)` 改成你电脑的局域网 IP
 - `DNS` 改成同一个 IP
 
-设备说明：
+如果你只想先验证一次，优先拿这几类设备测试：
 
 - [iPhone / Android](docs/phone-setup.md)
 - [Nintendo Switch](docs/switch-setup.md)
 - [PS5](docs/ps5-setup.md)
 - [Apple TV](docs/appletv-setup.md)
 - [智能电视](docs/tv-setup.md)
+
+### 第 5 步：确认是否成功
+
+```bash
+gateway status
+```
+
+你会看到：
+
+- 当前节点
+- 入口节点
+- 普通出口
+- 住宅出口（如果开启了 chains）
 
 ## 常用命令
 
@@ -226,45 +226,6 @@ flowchart LR
 3. 规则系统决定直连、代理或拦截
 4. chains 模式下，AI 流量还能继续接到住宅出口
 
-## 配置结构
-
-当前配置围绕 4 个区块组织：
-
-```yaml
-proxy:
-runtime:
-rules:
-extension:
-```
-
-对应职责：
-
-- `proxy`：代理来源
-- `runtime`：运行参数和局域网共享
-- `rules`：分流与拦截
-- `extension`：chains 或脚本扩展
-
-旧版顶层配置仍兼容读取。
-
-## Release 下载
-
-- [GitHub Releases](https://github.com/Tght1211/lan-proxy-gateway/releases)
-
-| 系统 | 下载 |
-|---|---|
-| macOS Apple Silicon | [gateway-darwin-arm64](https://github.com/Tght1211/lan-proxy-gateway/releases/latest/download/gateway-darwin-arm64) / [gateway-darwin-arm64.tar.gz](https://github.com/Tght1211/lan-proxy-gateway/releases/latest/download/gateway-darwin-arm64.tar.gz) |
-| macOS Intel | [gateway-darwin-amd64](https://github.com/Tght1211/lan-proxy-gateway/releases/latest/download/gateway-darwin-amd64) / [gateway-darwin-amd64.tar.gz](https://github.com/Tght1211/lan-proxy-gateway/releases/latest/download/gateway-darwin-amd64.tar.gz) |
-| Linux x86_64 | [gateway-linux-amd64](https://github.com/Tght1211/lan-proxy-gateway/releases/latest/download/gateway-linux-amd64) / [gateway-linux-amd64.tar.gz](https://github.com/Tght1211/lan-proxy-gateway/releases/latest/download/gateway-linux-amd64.tar.gz) |
-| Linux ARM64 | [gateway-linux-arm64](https://github.com/Tght1211/lan-proxy-gateway/releases/latest/download/gateway-linux-arm64) / [gateway-linux-arm64.tar.gz](https://github.com/Tght1211/lan-proxy-gateway/releases/latest/download/gateway-linux-arm64.tar.gz) |
-| Windows x86_64 | [gateway-windows-amd64.exe](https://github.com/Tght1211/lan-proxy-gateway/releases/latest/download/gateway-windows-amd64.exe) / [gateway-windows-amd64.zip](https://github.com/Tght1211/lan-proxy-gateway/releases/latest/download/gateway-windows-amd64.zip) |
-
-Release 会同时提供：
-
-- 原始二进制
-- 压缩包
-- `SHA256SUMS`
-- 升级说明
-
 ## 文档导航
 
 - [命令总览](docs/commands.md)
@@ -275,6 +236,16 @@ Release 会同时提供：
 - [PS5 配置](docs/ps5-setup.md)
 - [Apple TV 配置](docs/appletv-setup.md)
 - [手机配置](docs/phone-setup.md)
+
+## 和 Clash Verge 的“允许局域网连接”有什么区别
+
+| 对比项 | Clash Verge 局域网代理 | LAN Proxy Gateway |
+|---|---|---|
+| 代理层级 | 应用层代理 | 网络层透明代理 |
+| 设备配置方式 | 填代理服务器地址 | 改网关和 DNS |
+| Switch / Apple TV / PS5 | 部分场景受限 | 更适合整机透明接管 |
+| App 是否感知代理 | 往往能感知 | 更接近真实网关 |
+| 典型使用方式 | 单设备代理 | 全屋设备共享 |
 
 ## 开源说明
 
