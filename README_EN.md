@@ -1,6 +1,6 @@
 # LAN Proxy Gateway
 
-[中文说明](README.md)
+[Chinese README](README.md)
 
 [![Release](https://img.shields.io/github/v/release/Tght1211/lan-proxy-gateway)](https://github.com/Tght1211/lan-proxy-gateway/releases)
 [![Stars](https://img.shields.io/github/stars/Tght1211/lan-proxy-gateway?style=social)](https://github.com/Tght1211/lan-proxy-gateway/stargazers)
@@ -167,11 +167,11 @@ Change the device's:
 
 If you want a quick first test, start with:
 
-- [iPhone / Android](docs/phone-setup.md)
-- [Nintendo Switch](docs/switch-setup.md)
-- [PS5](docs/ps5-setup.md)
-- [Apple TV](docs/appletv-setup.md)
-- [Smart TV](docs/tv-setup.md)
+- [iPhone / Android](docs/en/phone-setup.md)
+- [Nintendo Switch](docs/en/switch-setup.md)
+- [PS5](docs/en/ps5-setup.md)
+- [Apple TV](docs/en/appletv-setup.md)
+- [Smart TV](docs/en/tv-setup.md)
 
 ### Step 5: Verify
 
@@ -200,7 +200,7 @@ You will see:
 | `gateway permission install` | Install passwordless control rule |
 | `sudo gateway update` | Upgrade to the latest version |
 
-Full command reference: [docs/commands.md](docs/commands.md)
+Full command reference: [docs/en/commands.md](docs/en/commands.md)
 
 ## How It Works
 
@@ -228,14 +228,15 @@ flowchart LR
 
 ## Documentation
 
-- [Command Reference](docs/commands.md)
-- [Advanced Guide](docs/advanced.md)
-- [FAQ](docs/faq.md)
-- [Versioning Notes](docs/versioning.md)
-- [Switch Setup](docs/switch-setup.md)
-- [PS5 Setup](docs/ps5-setup.md)
-- [Apple TV Setup](docs/appletv-setup.md)
-- [Phone Setup](docs/phone-setup.md)
+- [Command Reference](docs/en/commands.md)
+- [Advanced Guide](docs/en/advanced.md)
+- [FAQ](docs/en/faq.md)
+- [Versioning Notes](docs/en/versioning.md)
+- [Switch Setup](docs/en/switch-setup.md)
+- [PS5 Setup](docs/en/ps5-setup.md)
+- [Apple TV Setup](docs/en/appletv-setup.md)
+- [Smart TV Setup](docs/en/tv-setup.md)
+- [Phone Setup](docs/en/phone-setup.md)
 
 ## How It Differs from Clash Verge LAN Access
 
