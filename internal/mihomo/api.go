@@ -1,10 +1,13 @@
 package mihomo
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"sort"
 	"time"
 )
 
@@ -76,14 +79,74 @@ type ProxyGroup struct {
 	All     []string `json:"all"`
 	Type    string   `json:"type"`
 	Name    string   `json:"name"`
+	Hidden  bool     `json:"hidden"`
 }
 
 func (c *Client) GetProxyGroup(name string) (*ProxyGroup, error) {
 	var pg ProxyGroup
-	if err := c.get("/proxies/"+name, &pg); err != nil {
+	if err := c.get("/proxies/"+url.PathEscape(name), &pg); err != nil {
 		return nil, err
 	}
+	if pg.Name == "" {
+		pg.Name = name
+	}
 	return &pg, nil
+}
+
+func (c *Client) ListProxyGroups() ([]ProxyGroup, error) {
+	var payload struct {
+		Proxies map[string]ProxyGroup `json:"proxies"`
+	}
+	if err := c.get("/proxies", &payload); err != nil {
+		return nil, err
+	}
+
+	groups := make([]ProxyGroup, 0, len(payload.Proxies))
+	for name, group := range payload.Proxies {
+		if group.Name == "" {
+			group.Name = name
+		}
+		if len(group.All) == 0 {
+			continue
+		}
+		groups = append(groups, group)
+	}
+
+	sort.Slice(groups, func(i, j int) bool {
+		return groups[i].Name < groups[j].Name
+	})
+	return groups, nil
+}
+
+func (c *Client) SelectProxy(groupName, proxyName string) error {
+	body, err := json.Marshal(map[string]string{"name": proxyName})
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, c.BaseURL+"/proxies/"+url.PathEscape(groupName), bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.Secret != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Secret)
+	}
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		msg, _ := io.ReadAll(resp.Body)
+		if len(msg) > 0 {
+			return fmt.Errorf("switch proxy failed: HTTP %d: %s", resp.StatusCode, string(msg))
+		}
+		return fmt.Errorf("switch proxy failed: HTTP %d", resp.StatusCode)
+	}
+	return nil
 }
 
 type ConnectionsInfo struct {

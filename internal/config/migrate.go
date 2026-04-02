@@ -41,38 +41,38 @@ func MigrateFromSecret(secretPath string) (*Config, error) {
 	cfg := DefaultConfig()
 
 	if v, ok := kv["PROXY_SOURCE"]; ok {
-		cfg.ProxySource = v
+		cfg.Proxy.Source = v
 	}
 	if v, ok := kv["SUBSCRIPTION_URL"]; ok {
-		cfg.SubscriptionURL = v
+		cfg.Proxy.SubscriptionURL = v
 	}
 	if v, ok := kv["PROXY_CONFIG_FILE"]; ok {
-		cfg.ProxyConfigFile = v
+		cfg.Proxy.ConfigFile = v
 	}
 	if v, ok := kv["SUBSCRIPTION_NAME"]; ok && v != "" {
-		cfg.SubscriptionName = v
+		cfg.Proxy.SubscriptionName = v
 	}
 	if v, ok := kv["API_SECRET"]; ok {
-		cfg.APISecret = v
+		cfg.Runtime.APISecret = v
 	}
 	if v, ok := kv["MIXED_PORT"]; ok {
 		if n, err := strconv.Atoi(v); err == nil {
-			cfg.Ports.Mixed = n
+			cfg.Runtime.Ports.Mixed = n
 		}
 	}
 	if v, ok := kv["REDIR_PORT"]; ok {
 		if n, err := strconv.Atoi(v); err == nil {
-			cfg.Ports.Redir = n
+			cfg.Runtime.Ports.Redir = n
 		}
 	}
 	if v, ok := kv["API_PORT"]; ok {
 		if n, err := strconv.Atoi(v); err == nil {
-			cfg.Ports.API = n
+			cfg.Runtime.Ports.API = n
 		}
 	}
 	if v, ok := kv["DNS_LISTEN_PORT"]; ok {
 		if n, err := strconv.Atoi(v); err == nil {
-			cfg.Ports.DNS = n
+			cfg.Runtime.Ports.DNS = n
 		}
 	}
 

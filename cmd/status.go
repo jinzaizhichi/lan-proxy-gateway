@@ -29,7 +29,7 @@ func runStatus(cmd *cobra.Command, args []string) {
 
 	// Load config for port info
 	cfg := loadConfigOrDefault()
-	apiPort := cfg.Ports.API
+	apiPort := cfg.Runtime.Ports.API
 
 	fmt.Println()
 	ui.Separator()
@@ -42,6 +42,7 @@ func runStatus(cmd *cobra.Command, args []string) {
 		fmt.Printf("  mihomo:      %s (PID: %d)\n", color.GreenString("运行中"), pid)
 	} else {
 		fmt.Printf("  mihomo:      %s\n", color.RedString("未运行"))
+		fmt.Printf("  扩展模式:    %s\n", extensionModeSummary(cfg))
 		fmt.Println()
 		fmt.Println("  启动: sudo gateway start")
 		return
@@ -68,10 +69,11 @@ func runStatus(cmd *cobra.Command, args []string) {
 	ip, _ := p.DetectInterfaceIP(iface)
 	fmt.Printf("  网络接口:    %s\n", iface)
 	fmt.Printf("  局域网 IP:   %s\n", ip)
+	fmt.Printf("  扩展模式:    %s\n", extensionModeSummary(cfg))
 
 	// Query mihomo API
 	apiURL := mihomo.FormatAPIURL("127.0.0.1", apiPort)
-	client := mihomo.NewClient(apiURL, cfg.APISecret)
+	client := mihomo.NewClient(apiURL, cfg.Runtime.APISecret)
 
 	if !client.IsAvailable() {
 		fmt.Println()
@@ -97,6 +99,8 @@ func runStatus(cmd *cobra.Command, args []string) {
 		fmt.Printf("  上传总量:    %s\n", ui.FormatBytes(conn.UploadTotal))
 		fmt.Printf("  下载总量:    %s\n", ui.FormatBytes(conn.DownloadTotal))
 	}
+
+	printEgressReport(cfg, resolveDataDir(), client)
 
 	// Device setup info
 	fmt.Println()

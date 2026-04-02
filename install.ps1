@@ -7,7 +7,7 @@ $GHMirror = if ($env:GITHUB_MIRROR) { $env:GITHUB_MIRROR } else { "" }
 
 function Detect-Mirror {
     if ($GHMirror) {
-        Write-Host "使��指定镜像: $GHMirror" -ForegroundColor Green
+        Write-Host "使用指定镜像: $GHMirror" -ForegroundColor Green
         return
     }
     try {
@@ -67,5 +67,6 @@ Write-Host "安装位置: $Target" -ForegroundColor Green
 Write-Host ""
 Write-Host "快速开始:" -ForegroundColor Green
 Write-Host "  gateway install    # 安装向导"
+Write-Host "  gateway config     # 打开配置中心"
 Write-Host "  gateway start      # 启动网关 (需要管理员权限)"
-Write-Host "  gateway status     # 查看状态"
+Write-Host "  gateway status     # 查看状态和出口网络"

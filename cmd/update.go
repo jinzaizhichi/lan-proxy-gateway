@@ -116,8 +116,12 @@ func runUpdate(cmd *cobra.Command, args []string) {
 }
 
 func fetchLatestTag() (string, error) {
+	return fetchLatestTagWithTimeout(15 * time.Second)
+}
+
+func fetchLatestTagWithTimeout(timeout time.Duration) (string, error) {
 	url := apiBase + "/releases/latest"
-	body, err := httpGetWithFallback(url)
+	body, err := httpGetWithFallbackTimeout(url, timeout)
 	if err != nil {
 		return "", err
 	}
@@ -134,7 +138,11 @@ func fetchLatestTag() (string, error) {
 }
 
 func httpGetWithFallback(url string) (io.ReadCloser, error) {
-	client := &http.Client{Timeout: 15 * time.Second}
+	return httpGetWithFallbackTimeout(url, 15*time.Second)
+}
+
+func httpGetWithFallbackTimeout(url string, timeout time.Duration) (io.ReadCloser, error) {
+	client := &http.Client{Timeout: timeout}
 
 	resp, err := client.Get(url)
 	if err == nil && resp.StatusCode == http.StatusOK {

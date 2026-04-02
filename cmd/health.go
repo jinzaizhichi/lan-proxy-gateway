@@ -45,13 +45,13 @@ func runHealth(cmd *cobra.Command, args []string) {
 	}
 
 	if running {
-		apiURL := mihomo.FormatAPIURL("127.0.0.1", cfg.Ports.API)
-		client := mihomo.NewClient(apiURL, cfg.APISecret)
+		apiURL := mihomo.FormatAPIURL("127.0.0.1", cfg.Runtime.Ports.API)
+		client := mihomo.NewClient(apiURL, cfg.Runtime.APISecret)
 		if !client.IsAvailable() {
 			ui.Error("[health] mihomo API 不可用")
 			healthy = false
 		} else {
-			if err := client.UpdateProxyProvider(cfg.SubscriptionName); err != nil {
+			if err := client.UpdateProxyProvider(cfg.Proxy.SubscriptionName); err != nil {
 				ui.Warn("[health] 订阅刷新失败: %s", err)
 			}
 		}
@@ -65,8 +65,8 @@ func runHealth(cmd *cobra.Command, args []string) {
 	}
 
 	// Proactive: clear stale connections to free resources
-	apiURL := mihomo.FormatAPIURL("127.0.0.1", cfg.Ports.API)
-	client := mihomo.NewClient(apiURL, cfg.APISecret)
+	apiURL := mihomo.FormatAPIURL("127.0.0.1", cfg.Runtime.Ports.API)
+	client := mihomo.NewClient(apiURL, cfg.Runtime.APISecret)
 	if conn, err := client.GetConnections(); err == nil && len(conn.Connections) > 500 {
 		ui.Info("[health] 活跃连接数 %d 较高，清理旧连接...", len(conn.Connections))
 		client.CloseAllConnections()

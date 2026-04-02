@@ -1,33 +1,67 @@
 # lan-proxy-gateway 配置文件
 # 此文件包含敏感信息，请勿提交到 Git
 
-# 代理来源: "url" (订阅链接) 或 "file" (本地配置文件)
-proxy_source: url
+proxy:
+  # url: 使用订阅链接 | file: 使用本地 Clash/mihomo 配置文件
+  source: url
+  subscription_url: "https://your-subscription-url-here"
+  config_file: /path/to/your/clash-config.yaml
+  subscription_name: subscription
 
-# 订阅链接 (proxy_source: url 时必填)
-subscription_url: "https://your-subscription-url-here"
+runtime:
+  ports:
+    mixed: 7890
+    redir: 7892
+    api: 9090
+    dns: 53
+  api_secret: ""
+  tun:
+    enabled: false
+    bypass_local: false  # true = 仅局域网设备走网关，本机当前这台电脑尽量保持直连
 
-# 本地配置文件路径 (proxy_source: file 时必填)
-# proxy_config_file: /path/to/your/clash-config.yaml
+rules:
+  # 以下开关默认都为 true；只有你需要关闭某一类内置规则时再显式写 false
+  lan_direct: true
+  china_direct: true
+  apple_rules: true
+  nintendo_proxy: true
+  global_proxy: true
+  ads_reject: true
+  extra_direct_rules:
+    - "DOMAIN-SUFFIX,corp.example.com,DIRECT"
+  extra_proxy_rules:
+    - "DOMAIN-SUFFIX,example-overseas.com,Proxy"
+  extra_reject_rules:
+    - "DOMAIN-SUFFIX,annoying-ads.example,REJECT"
 
-# 代理源名称
-subscription_name: subscription
+# 扩展模式：把相关配置收在一起
+extension:
+  # chains = 内置链式代理 | script = JS 扩展脚本 | 留空 = 不启用扩展
+  mode: ""
 
-# 端口配置
-ports:
-  mixed: 7890     # 混合代理 (HTTP + SOCKS5)
-  redir: 7892     # 透明代理
-  api: 9090       # mihomo API 面板
-  dns: 53         # DNS 服务
+  # 扩展脚本（可选，高级用法）
+  # 兼容 Clash Verge Rev 格式，须导出 function main(config)
+  # 只有 mode: script 时才会生效
+  #   ./script-demo.js 是项目自带示例，可参考其结构自行扩展
+  script_path: ./script-demo.js
 
-# API 密钥 (留空则无需认证)
-api_secret: ""
-
-# 扩展脚本路径（可选）
-# 兼容 Clash Verge Rev 脚本格式，在每次生成配置后自动执行
-# 脚本须导出 function main(config) { ...; return config; }
-# 项目根目录的 script.js 是一个现成的示例（住宅代理 + AI 分流）
-# 使用步骤：
-#   1. 复制 script.js 到安全位置，修改其中的代理参数
-#   2. 将下面这行取消注释并填写你的脚本路径
-# script_path: /etc/gateway/script.js
+  # 链式代理：设备 → 机场节点 → 住宅代理 → 目标网站
+  # 配置后 Claude / ChatGPT / Cursor 以纯净住宅 IP 出口，防账号风控
+  # 只有 mode: chains 时才会生效
+  # 运行 gateway chains 进入向导自动填写，或运行 gateway switch extension chains 启用
+  residential_chain:
+    mode: rule              # rule: 仅 AI 服务走住宅代理 | global: 全部流量走住宅代理
+    proxy_server: "1.2.3.4"
+    proxy_port: 443
+    proxy_type: socks5      # socks5 / http
+    proxy_username: "your-username"
+    proxy_password: "your-password"
+    airport_group: Auto     # 机场延迟测速组名，常见: Auto、自动选择、⚡️最低延迟
+    extra_direct_rules:
+      - "DOMAIN-SUFFIX,corp.example.com,DIRECT"
+      - "PROCESS-NAME,DingTalk,DIRECT"
+      - "IP-CIDR,192.168.0.0/16,DIRECT"
+    extra_proxy_rules:
+      - "DOMAIN-SUFFIX,x.com,AI Only"
+      - "DOMAIN-SUFFIX,github.com,AI Only"
+      - "PROCESS-NAME,Telegram,AI Only"

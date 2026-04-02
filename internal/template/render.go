@@ -8,6 +8,7 @@ import (
 
 	embed "github.com/tght/lan-proxy-gateway/embed"
 	"github.com/tght/lan-proxy-gateway/internal/config"
+	"github.com/tght/lan-proxy-gateway/internal/rules"
 	"github.com/tght/lan-proxy-gateway/internal/script"
 )
 
@@ -17,21 +18,25 @@ func RenderTemplate(cfg *config.Config, iface, ip, outputPath string) error {
 	result := embed.TemplateContent
 
 	tunConfig := "tun:\n  enable: false"
-	if cfg.TunEnabled {
+	if cfg.Runtime.Tun.Enabled {
 		tunConfig = "tun:\n  enable: true\n  stack: mixed\n  auto-route: true\n  auto-detect-interface: true\n  mtu: 1500"
+		if cfg.Runtime.Tun.BypassLocal && iface != "" {
+			tunConfig += "\n  include-interface:\n    - " + iface
+		}
 	}
 
 	replacements := map[string]string{
-		"{{MIXED_PORT}}":        strconv.Itoa(cfg.Ports.Mixed),
-		"{{REDIR_PORT}}":        strconv.Itoa(cfg.Ports.Redir),
-		"{{API_PORT}}":          strconv.Itoa(cfg.Ports.API),
-		"{{API_SECRET}}":        cfg.APISecret,
-		"{{DNS_LISTEN_PORT}}":   strconv.Itoa(cfg.Ports.DNS),
-		"{{SUBSCRIPTION_URL}}":  cfg.SubscriptionURL,
-		"{{SUBSCRIPTION_NAME}}": cfg.SubscriptionName,
+		"{{MIXED_PORT}}":        strconv.Itoa(cfg.Runtime.Ports.Mixed),
+		"{{REDIR_PORT}}":        strconv.Itoa(cfg.Runtime.Ports.Redir),
+		"{{API_PORT}}":          strconv.Itoa(cfg.Runtime.Ports.API),
+		"{{API_SECRET}}":        cfg.Runtime.APISecret,
+		"{{DNS_LISTEN_PORT}}":   strconv.Itoa(cfg.Runtime.Ports.DNS),
+		"{{SUBSCRIPTION_URL}}":  cfg.Proxy.SubscriptionURL,
+		"{{SUBSCRIPTION_NAME}}": cfg.Proxy.SubscriptionName,
 		"{{LAN_INTERFACE}}":     iface,
 		"{{LAN_IP}}":            ip,
 		"{{TUN_CONFIG}}":        tunConfig,
+		"{{RULES_BLOCK}}":       rules.Render(cfg),
 	}
 
 	for placeholder, value := range replacements {
@@ -39,15 +44,27 @@ func RenderTemplate(cfg *config.Config, iface, ip, outputPath string) error {
 	}
 
 	// For file mode: patch proxy-providers from http to file type
-	if cfg.ProxySource == "file" {
+	if cfg.Proxy.Source == "file" {
 		result = patchForFileMode(result)
 	}
 
 	output := []byte(result)
 
-	// Apply extension script if configured (Clash Verge Rev compatible format)
-	if cfg.ScriptPath != "" {
-		modified, err := script.Apply(cfg.ScriptPath, output)
+	switch cfg.Extension.Mode {
+	case "chains":
+		if cfg.Extension.ResidentialChain == nil {
+			return fmt.Errorf("extension.mode 为 chains 但未配置 extension.residential_chain")
+		}
+		modified, err := script.ApplyChains(cfg.Extension.ResidentialChain, output)
+		if err != nil {
+			return fmt.Errorf("链式代理注入失败: %w", err)
+		}
+		output = modified
+	case "script":
+		if cfg.Extension.ScriptPath == "" {
+			return fmt.Errorf("extension.mode 为 script 但未配置 extension.script_path")
+		}
+		modified, err := script.Apply(cfg.Extension.ScriptPath, output)
 		if err != nil {
 			return fmt.Errorf("扩展脚本执行失败: %w", err)
 		}

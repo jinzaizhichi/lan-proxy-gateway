@@ -1,58 +1,117 @@
 # 完整命令说明
 
-## 基础操作
+## 常用起步命令
 
 | 命令 | 说明 | 需要管理员权限 |
-|------|------|:---:|
-| `gateway install` | 初始化向导：下载 mihomo、配置代理来源、生成配置文件 | 否 |
-| `sudo gateway start` | 启动网关（开启 IP 转发、启动 mihomo） | ✓ |
-| `sudo gateway stop` | 停止网关（关闭 mihomo、清理路由规则） | ✓ |
-| `sudo gateway restart` | 重启网关（等同于 stop + start） | ✓ |
-| `gateway status` | 查看运行状态：节点、连接数、上下行流量、本机 IP | 否 |
+|---|---|:---:|
+| `gateway install` | 初始化向导: 下载 mihomo、录入订阅、生成配置文件 | 否 |
+| `gateway config` | 交互式配置中心: 代理来源 / 局域网共享 / 规则 / 扩展 | 否 |
+| `gateway config show` | 查看当前配置摘要 | 否 |
+| `sudo gateway start` | 启动网关，并在交互终端里进入运行中控制台 | 是 |
+| `sudo gateway stop` | 停止网关 | 是 |
+| `sudo gateway restart` | 重启网关 | 是 |
+| `gateway status` | 查看运行状态、入口节点、普通出口、住宅出口 | 否 |
 
-## 维护与升级
+## 运行中控制台
 
-| 命令 | 说明 | 需要管理员权限 |
-|------|------|:---:|
-| `sudo gateway health` | 健康检查：检测进程 / TUN 接口 / API，异常时自动重启修复 | ✓ |
-| `sudo gateway update` | 一键升级到最新版本（自动下载、替换、重启），GitHub 超时自动切换镜像 | ✓ |
+`gateway start` 在交互终端中成功启动后，会进入一个运行中 TUI 控制台。
 
-## 切换代理来源
+支持:
+
+- slash 命令: `/status` `/config` `/chains` `/groups` `/logs` `/help`
+- 策略组选择器: `Ctrl+P`
+- 确认交互: `/stop` `/restart` 后输入 `y / n`
+
+这让它更像一个持续运行的 CLI 系统，而不是“一次性打印信息就退出”的命令。
+
+## 配置与切换
 
 | 命令 | 说明 |
-|------|------|
-| `gateway switch` | 查看当前代理来源（url 或 file 模式） |
-| `gateway switch url` | 切换到订阅链接模式（需在 `gateway.yaml` 中已配置 `subscription_url`） |
-| `gateway switch file /path/to/config.yaml` | 切换到本地 Clash/mihomo 配置文件模式，自动提取 proxies 节点 |
+|---|---|
+| `gateway switch` | 查看当前代理来源和扩展模式 |
+| `gateway switch url` | 切换到订阅链接模式 |
+| `gateway switch file /path/to/config.yaml` | 切换到本地 Clash / mihomo 配置文件模式 |
+| `gateway switch extension` | 查看当前扩展模式 |
+| `gateway switch extension chains` | 启用内置链式代理 |
+| `gateway switch extension script /path/to/script.js` | 启用 JS 扩展脚本 |
+| `gateway switch extension off` | 关闭扩展模式 |
+| `gateway chains` | 打开链式代理向导 |
+| `gateway chains status` | 查看链式代理当前配置 |
+| `gateway chains disable` | 关闭链式代理模式 |
 
-## TUN 模式控制
+## 局域网共享 / TUN / 本机绕过
 
 | 命令 | 说明 |
-|------|------|
-| `gateway tun on` | 开启 TUN 透明代理模式（**Switch / PS5 / 电视 要走代理必须开启**），需重启生效 |
-| `gateway tun off` | 关闭 TUN 模式（默认），改为规则模式 |
+|---|---|
+| `gateway tun on` | 开启 TUN 透明代理模式 |
+| `gateway tun off` | 关闭 TUN 模式 |
 
-> TUN 模式是什么：开启后 mihomo 会创建一块虚拟网卡，接管所有流经网关的流量，实现真正的透明代理。**让其他设备科学上网必须开启 TUN 模式。** 如果本机同时运行 Clash Verge 且也开了 TUN，两者会冲突——先关掉 Clash Verge 的 TUN。
+现在更推荐直接通过 `gateway config` 来统一调整:
 
-## 开机自启动服务
+- `runtime.tun.enabled`
+- `runtime.tun.bypass_local`
+- 运行端口
+- API 密钥
+
+其中 `bypass_local` 的用途是:
+
+- 当前这台电脑自己尽量不走科学上网
+- 局域网其他设备继续通过它共享网关能力
+
+## 策略组与节点切换
+
+有两种方式:
+
+1. Web 面板: `http://你的局域网IP:9090/ui`
+2. CLI 运行中控制台:
+   - 启动网关
+   - 按 `Ctrl+P`
+   - 选择策略组
+   - 选择节点并回车切换
+
+这让它更接近一个 CLI 版的 Clash Verge Rev 工作台。
+
+## 健康检查与维护
 
 | 命令 | 说明 | 需要管理员权限 |
-|------|------|:---:|
-| `sudo gateway service install` | 安装系统服务：开机自动启动 + 崩溃自动重启（macOS 用 launchd，Linux 用 systemd，Windows 用 sc.exe） | ✓ |
-| `sudo gateway service uninstall` | 卸载系统服务 | ✓ |
+|---|---|:---:|
+| `sudo gateway health` | 健康检查；异常时尝试修复 | 是 |
+| `sudo gateway update` | 升级到最新版本，自动尝试镜像下载 | 是 |
+| `gateway permission print` | 打印 sudoers 配置片段 | 否 |
+| `sudo gateway permission install` | 安装免密控制规则，之后可普通权限触发自动提权 | 是 |
+| `gateway permission status` | 查看权限控制状态 | 否 |
+
+## 服务管理
+
+| 命令 | 说明 | 需要管理员权限 |
+|---|---|:---:|
+| `sudo gateway service install` | 安装开机自启服务 | 是 |
+| `sudo gateway service uninstall` | 卸载开机自启服务 | 是 |
+
+## AI Skill
+
+| 命令 | 说明 |
+|---|---|
+| `gateway skill` | 查看可供 AI 客户端安装的 skill 信息 |
+| `gateway skill path` | 输出 skill 目录路径 |
+
+skill 的目标是让 AI 客户端能直接按场景调用这个系统，例如:
+
+- 开通局域网共享
+- 配置 chains
+- 切换策略组
+- 打开本机绕过
+- 做健康检查和日志排障
 
 ## 全局参数
 
-所有命令都支持以下参数（放在命令后面）：
-
 | 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `--config <路径>` | 指定配置文件路径 | 当前目录的 `gateway.yaml` |
-| `--data-dir <路径>` | 指定数据目录路径（存放 mihomo 运行配置） | 当前目录的 `data/` |
+|---|---|---|
+| `--config <路径>` | 指定配置文件路径 | `./gateway.yaml` |
+| `--data-dir <路径>` | 指定运行数据目录 | `./data` |
 
-**示例：**
+示例:
 
 ```bash
-# 使用自定义配置文件路径
 sudo gateway start --config /etc/gateway/gateway.yaml --data-dir /var/lib/gateway
 ```

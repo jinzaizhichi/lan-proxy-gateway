@@ -38,7 +38,7 @@ func runTun(cmd *cobra.Command, args []string) {
 	cfg := loadConfigRequired()
 	enabled := action == "on"
 
-	if cfg.TunEnabled == enabled {
+	if cfg.Runtime.Tun.Enabled == enabled {
 		if enabled {
 			ui.Warn("TUN 模式已经是开启状态")
 		} else {
@@ -47,7 +47,7 @@ func runTun(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	cfg.TunEnabled = enabled
+	cfg.Runtime.Tun.Enabled = enabled
 
 	cfgPath := resolveConfigPath()
 	if cfgPath == ".secret" {

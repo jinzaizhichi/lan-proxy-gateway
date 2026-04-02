@@ -180,17 +180,17 @@ func runInstall(cmd *cobra.Command, args []string) {
 
 	// Check existing config
 	if _, err := os.Stat(cfgPath); err == nil && cfgPath != ".secret" {
-		if cfg.ProxySource == "url" && cfg.SubscriptionURL != "" {
+		if cfg.Proxy.Source == "url" && cfg.Proxy.SubscriptionURL != "" {
 			ui.Info("已有配置 [订阅链接模式]")
-			url := cfg.SubscriptionURL
+			url := cfg.Proxy.SubscriptionURL
 			if len(url) > 40 {
 				url = url[:40] + "..."
 			}
 			fmt.Printf("  当前订阅: %s\n", url)
 			needConfig = false
-		} else if cfg.ProxySource == "file" && cfg.ProxyConfigFile != "" {
+		} else if cfg.Proxy.Source == "file" && cfg.Proxy.ConfigFile != "" {
 			ui.Info("已有配置 [配置文件模式]")
-			fmt.Printf("  配置文件: %s\n", cfg.ProxyConfigFile)
+			fmt.Printf("  配置文件: %s\n", cfg.Proxy.ConfigFile)
 			needConfig = false
 		}
 		if !needConfig {
@@ -232,15 +232,15 @@ func runInstall(cmd *cobra.Command, args []string) {
 				os.Exit(1)
 			}
 
-			cfg.ProxySource = "file"
-			cfg.ProxyConfigFile = path
+			cfg.Proxy.Source = "file"
+			cfg.Proxy.ConfigFile = path
 
 			fmt.Println()
 			fmt.Print("给代理源起个名字 [subscription]: ")
 			name, _ := reader.ReadString('\n')
 			name = strings.TrimSpace(name)
 			if name != "" {
-				cfg.SubscriptionName = name
+				cfg.Proxy.SubscriptionName = name
 			}
 
 		default:
@@ -257,15 +257,15 @@ func runInstall(cmd *cobra.Command, args []string) {
 				os.Exit(1)
 			}
 
-			cfg.ProxySource = "url"
-			cfg.SubscriptionURL = url
+			cfg.Proxy.Source = "url"
+			cfg.Proxy.SubscriptionURL = url
 
 			fmt.Println()
 			fmt.Print("给订阅起个名字 [subscription]: ")
 			name, _ := reader.ReadString('\n')
 			name = strings.TrimSpace(name)
 			if name != "" {
-				cfg.SubscriptionName = name
+				cfg.Proxy.SubscriptionName = name
 			}
 		}
 

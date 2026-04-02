@@ -2,6 +2,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS = -s -w -X main.version=$(VERSION)
 BINARY = gateway
 INSTALL_PATH = /usr/local/bin/$(BINARY)
+DIST_DIR = dist
 
 .PHONY: build install uninstall build-all clean
 
@@ -18,13 +19,24 @@ uninstall:
 	@echo "已卸载 $(BINARY)"
 
 build-all: clean
-	@mkdir -p dist
-	GOOS=darwin  GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o dist/$(BINARY)-darwin-arm64  .
-	GOOS=darwin  GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o dist/$(BINARY)-darwin-amd64  .
-	GOOS=linux   GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o dist/$(BINARY)-linux-amd64   .
-	GOOS=linux   GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o dist/$(BINARY)-linux-arm64   .
-	GOOS=windows GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o dist/$(BINARY)-windows-amd64.exe .
-	@echo "Build complete. Binaries in dist/"
+	@mkdir -p $(DIST_DIR)
+	GOOS=darwin  GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o $(DIST_DIR)/$(BINARY)-darwin-arm64 .
+	GOOS=darwin  GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o $(DIST_DIR)/$(BINARY)-darwin-amd64 .
+	GOOS=linux   GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o $(DIST_DIR)/$(BINARY)-linux-amd64 .
+	GOOS=linux   GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o $(DIST_DIR)/$(BINARY)-linux-arm64 .
+	GOOS=windows GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o $(DIST_DIR)/$(BINARY)-windows-amd64.exe .
+	tar -C $(DIST_DIR) -czf $(DIST_DIR)/$(BINARY)-darwin-arm64.tar.gz $(BINARY)-darwin-arm64
+	tar -C $(DIST_DIR) -czf $(DIST_DIR)/$(BINARY)-darwin-amd64.tar.gz $(BINARY)-darwin-amd64
+	tar -C $(DIST_DIR) -czf $(DIST_DIR)/$(BINARY)-linux-amd64.tar.gz $(BINARY)-linux-amd64
+	tar -C $(DIST_DIR) -czf $(DIST_DIR)/$(BINARY)-linux-arm64.tar.gz $(BINARY)-linux-arm64
+	cd $(DIST_DIR) && zip -q $(BINARY)-windows-amd64.zip $(BINARY)-windows-amd64.exe
+	cp docs/releases/latest.md $(DIST_DIR)/release-notes.md
+	if command -v shasum >/dev/null 2>&1; then \
+		cd $(DIST_DIR) && shasum -a 256 gateway-* release-notes.md > SHA256SUMS; \
+	else \
+		cd $(DIST_DIR) && sha256sum gateway-* release-notes.md > SHA256SUMS; \
+	fi
+	@echo "Build complete. Assets in $(DIST_DIR)/"
 
 clean:
-	rm -rf dist/ $(BINARY)
+	rm -rf $(DIST_DIR)/ $(BINARY)

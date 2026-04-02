@@ -17,21 +17,34 @@ import (
 )
 
 var switchCmd = &cobra.Command{
-	Use:   "switch [url|file] [path]",
-	Short: "切换代理来源（订阅链接 / 本地配置文件）",
-	Long: `切换代理来源模式。
+	Use:   "switch",
+	Short: "切换代理来源或扩展模式",
+	Long: `切换代理来源或扩展模式。
 
 用法:
-  gateway switch              # 查看当前模式
+  gateway switch                         # 查看当前模式
   gateway switch url          # 切换到订阅链接模式
   gateway switch file         # 切换到配置文件模式
-  gateway switch file /path   # 切换并更新配置文件路径`,
+  gateway switch file /path   # 切换并更新配置文件路径
+  gateway switch extension    # 查看当前扩展模式
+  gateway switch extension chains
+  gateway switch extension script ./script-demo.js
+  gateway switch extension off`,
 	Args: cobra.MaximumNArgs(2),
 	Run:  runSwitch,
 }
 
+var switchExtensionCmd = &cobra.Command{
+	Use:     "extension [chains|script|off] [script-path]",
+	Aliases: []string{"ext"},
+	Short:   "切换扩展模式（chains / script / off）",
+	Args:    cobra.MaximumNArgs(2),
+	Run:     runSwitchExtension,
+}
+
 func init() {
 	rootCmd.AddCommand(switchCmd)
+	switchCmd.AddCommand(switchExtensionCmd)
 }
 
 func runSwitch(cmd *cobra.Command, args []string) {
@@ -41,18 +54,24 @@ func runSwitch(cmd *cobra.Command, args []string) {
 	// No args: show current mode
 	if len(args) == 0 {
 		fmt.Println()
-		fmt.Printf("  %s %s\n", color.New(color.Bold).Sprint("当前模式:"), color.CyanString(cfg.ProxySource))
-		if cfg.ProxySource == "url" {
-			url := cfg.SubscriptionURL
+		fmt.Printf("  %s %s\n", color.New(color.Bold).Sprint("代理来源:"), color.CyanString(cfg.Proxy.Source))
+		if cfg.Proxy.Source == "url" {
+			url := cfg.Proxy.SubscriptionURL
 			if len(url) > 50 {
 				url = url[:50] + "..."
 			}
 			fmt.Printf("  %s %s\n", color.New(color.Bold).Sprint("订阅链接:"), url)
 		} else {
-			fmt.Printf("  %s %s\n", color.New(color.Bold).Sprint("配置文件:"), cfg.ProxyConfigFile)
+			fmt.Printf("  %s %s\n", color.New(color.Bold).Sprint("配置文件:"), cfg.Proxy.ConfigFile)
 		}
+		fmt.Printf("  %s %s\n", color.New(color.Bold).Sprint("扩展模式:"), extensionModeSummary(cfg))
 		fmt.Println()
-		fmt.Printf("  %s\n", color.New(color.Faint).Sprint("用法: gateway switch [url|file] [配置文件路径]"))
+		fmt.Println(color.New(color.Faint).Sprint("  常用切换:"))
+		fmt.Println("    gateway switch url")
+		fmt.Println("    gateway switch file /path/to/config.yaml")
+		fmt.Println("    gateway switch extension chains")
+		fmt.Println("    gateway switch extension script ./script-demo.js")
+		fmt.Println("    gateway switch extension off")
 		fmt.Println()
 		return
 	}
@@ -64,8 +83,8 @@ func runSwitch(cmd *cobra.Command, args []string) {
 	}
 
 	// Switch to url mode
-	if target == "url" && cfg.SubscriptionURL == "" {
-		ui.Error("未配置订阅链接，请先在 gateway.yaml 中设置 subscription_url")
+	if target == "url" && cfg.Proxy.SubscriptionURL == "" {
+		ui.Error("未配置订阅链接，请先在 gateway.yaml 中设置 proxy.subscription_url")
 		os.Exit(1)
 	}
 
@@ -88,17 +107,17 @@ func runSwitch(cmd *cobra.Command, args []string) {
 				os.Exit(1)
 			}
 			ui.Info("检测到 %d 个代理节点", count)
-			cfg.ProxyConfigFile = path
+			cfg.Proxy.ConfigFile = path
 		}
-		if cfg.ProxyConfigFile == "" {
+		if cfg.Proxy.ConfigFile == "" {
 			ui.Error("未配置文件路径")
 			fmt.Println("  用法: gateway switch file /path/to/config.yaml")
 			os.Exit(1)
 		}
 	}
 
-	oldSource := cfg.ProxySource
-	cfg.ProxySource = target
+	oldSource := cfg.Proxy.Source
+	cfg.Proxy.Source = target
 
 	// Save config
 	if cfgPath == ".secret" {
@@ -128,9 +147,9 @@ func runSwitch(cmd *cobra.Command, args []string) {
 		iface, _ := p.DetectDefaultInterface()
 		ip, _ := p.DetectInterfaceIP(iface)
 
-		if cfg.ProxySource == "file" {
-			providerFile := filepath.Join(dDir, "proxy_provider", cfg.SubscriptionName+".yaml")
-			count, err := proxy.ExtractProxies(cfg.ProxyConfigFile, providerFile)
+		if cfg.Proxy.Source == "file" {
+			providerFile := filepath.Join(dDir, "proxy_provider", cfg.Proxy.SubscriptionName+".yaml")
+			count, err := proxy.ExtractProxies(cfg.Proxy.ConfigFile, providerFile)
 			if err != nil {
 				ui.Error("提取代理节点失败: %s", err)
 				os.Exit(1)
@@ -147,4 +166,134 @@ func runSwitch(cmd *cobra.Command, args []string) {
 		fmt.Println()
 		ui.Info("如需生效，请重启网关: sudo gateway start")
 	}
+}
+
+func runSwitchExtension(cmd *cobra.Command, args []string) {
+	cfgPath := resolveConfigPath()
+	cfg := loadConfigOrDefault()
+
+	if len(args) == 0 {
+		printExtensionStatus(cfg)
+		return
+	}
+
+	target := args[0]
+	switch target {
+	case "chains":
+		if cfg.Extension.ResidentialChain == nil {
+			ui.Error("未配置 extension.residential_chain")
+			fmt.Println("  先运行 gateway chains 进入向导，或手动编辑 gateway.yaml")
+			os.Exit(1)
+		}
+		prev := extensionModeName(cfg.Extension.Mode)
+		cfg.Extension.Mode = "chains"
+		saveExtensionSwitch(cfg, cfgPath)
+		ui.Success("已切换扩展模式: %s → chains", prev)
+		if cfg.Extension.ScriptPath != "" {
+			ui.Info("script_path 已保留，当前不生效: %s", cfg.Extension.ScriptPath)
+		}
+	case "script":
+		if len(args) >= 2 {
+			cfg.Extension.ScriptPath = expandPath(args[1])
+		}
+		if cfg.Extension.ScriptPath == "" {
+			ui.Error("未配置 extension.script_path")
+			fmt.Println("  用法: gateway switch extension script /path/to/script.js")
+			os.Exit(1)
+		}
+		if _, err := os.Stat(cfg.Extension.ScriptPath); err != nil {
+			ui.Error("脚本文件不存在: %s", cfg.Extension.ScriptPath)
+			os.Exit(1)
+		}
+		prev := extensionModeName(cfg.Extension.Mode)
+		cfg.Extension.Mode = "script"
+		saveExtensionSwitch(cfg, cfgPath)
+		ui.Success("已切换扩展模式: %s → script", prev)
+		if cfg.Extension.ResidentialChain != nil {
+			ui.Info("residential_chain 配置已保留，当前不生效")
+		}
+	case "off":
+		if cfg.Extension.Mode == "" {
+			ui.Info("扩展模式本就未启用")
+			return
+		}
+		prev := cfg.Extension.Mode
+		cfg.Extension.Mode = ""
+		saveExtensionSwitch(cfg, cfgPath)
+		ui.Success("已关闭扩展模式（原模式: %s）", prev)
+		if cfg.Extension.ScriptPath != "" {
+			ui.Info("script_path 已保留，后续可直接运行 gateway switch extension script 启用")
+		}
+	default:
+		ui.Error("参数应为 chains、script 或 off")
+		os.Exit(1)
+	}
+
+	fmt.Println()
+	fmt.Println("  重启网关后生效:")
+	fmt.Println("    sudo gateway restart")
+}
+
+func saveExtensionSwitch(cfg *config.Config, cfgPath string) {
+	if cfgPath == ".secret" {
+		cfgPath = "gateway.yaml"
+	}
+	if err := config.Save(cfg, cfgPath); err != nil {
+		ui.Error("保存配置失败: %s", err)
+		os.Exit(1)
+	}
+}
+
+func printExtensionStatus(cfg *config.Config) {
+	fmt.Println()
+	fmt.Printf("  %s %s\n", color.New(color.Bold).Sprint("当前扩展模式:"), extensionModeSummary(cfg))
+	switch cfg.Extension.Mode {
+	case "chains":
+		if cfg.Extension.ResidentialChain != nil {
+			fmt.Printf("  %s %s:%d (%s)\n", color.New(color.Bold).Sprint("住宅代理:"), cfg.Extension.ResidentialChain.ProxyServer, cfg.Extension.ResidentialChain.ProxyPort, cfg.Extension.ResidentialChain.ProxyType)
+			fmt.Printf("  %s %s\n", color.New(color.Bold).Sprint("路由模式:"), cfg.Extension.ResidentialChain.Mode)
+		}
+	case "script":
+		fmt.Printf("  %s %s\n", color.New(color.Bold).Sprint("脚本路径:"), cfg.Extension.ScriptPath)
+	default:
+		if cfg.Extension.ScriptPath != "" {
+			fmt.Printf("  %s %s\n", color.New(color.Bold).Sprint("已保留脚本:"), cfg.Extension.ScriptPath)
+		}
+	}
+	fmt.Println()
+	fmt.Println(color.New(color.Faint).Sprint("  常用切换:"))
+	fmt.Println("    gateway chains")
+	fmt.Println("    gateway switch extension chains")
+	fmt.Println("    gateway switch extension script ./script-demo.js")
+	fmt.Println("    gateway switch extension off")
+	fmt.Println()
+}
+
+func extensionModeSummary(cfg *config.Config) string {
+	switch cfg.Extension.Mode {
+	case "chains":
+		return color.GreenString("chains（内置链式代理）")
+	case "script":
+		if cfg.Extension.ScriptPath != "" {
+			return color.GreenString("script（%s）", cfg.Extension.ScriptPath)
+		}
+		return color.YellowString("script（缺少 script_path）")
+	default:
+		return color.New(color.Faint).Sprint("未启用")
+	}
+}
+
+func extensionModeName(mode string) string {
+	if mode == "" {
+		return "off"
+	}
+	return mode
+}
+
+func expandPath(path string) string {
+	if strings.HasPrefix(path, "~") {
+		home, _ := os.UserHomeDir()
+		return filepath.Join(home, path[1:])
+	}
+	return path
 }
