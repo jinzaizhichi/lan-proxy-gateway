@@ -81,41 +81,18 @@ graph TD
 
 > **脚本下载成功后，后续的二进制文件会自动尝试多个镜像，无需手动干预。**
 
-打开终端（Mac 上搜索"终端"或"Terminal"，Windows 打开"PowerShell"），**从下面按顺序逐条试**，哪条能跑通用哪条：
+打开终端（Mac 上搜索"终端"或"Terminal"，Windows 打开"PowerShell"），运行对应命令：
 
 **macOS / Linux：**
 
 ```bash
-# 线路 1：直连 GitHub
 curl -fsSL https://raw.githubusercontent.com/Tght1211/lan-proxy-gateway/main/install.sh | bash
-
-# 线路 2：gitmirror（国内速度较快）
-curl -fsSL https://raw.gitmirror.com/Tght1211/lan-proxy-gateway/main/install.sh | bash
-
-# 线路 3：ghproxy
-curl -fsSL https://mirror.ghproxy.com/https://raw.githubusercontent.com/Tght1211/lan-proxy-gateway/main/install.sh | bash
-
-# 线路 4：kkgithub
-curl -fsSL https://raw.kkgithub.com/Tght1211/lan-proxy-gateway/main/install.sh | bash
-
-# 线路 5：moeyy
-curl -fsSL https://github.moeyy.xyz/https://raw.githubusercontent.com/Tght1211/lan-proxy-gateway/main/install.sh | bash
 ```
 
 **Windows（PowerShell，右键"以管理员身份运行"）：**
 
 ```powershell
-# 线路 1：直连 GitHub
 irm https://raw.githubusercontent.com/Tght1211/lan-proxy-gateway/main/install.ps1 | iex
-
-# 线路 2：gitmirror
-irm https://raw.gitmirror.com/Tght1211/lan-proxy-gateway/main/install.ps1 | iex
-
-# 线路 3：ghproxy
-irm https://mirror.ghproxy.com/https://raw.githubusercontent.com/Tght1211/lan-proxy-gateway/main/install.ps1 | iex
-
-# 线路 4：kkgithub
-irm https://raw.kkgithub.com/Tght1211/lan-proxy-gateway/main/install.ps1 | iex
 ```
 
 脚本会自动完成所有安装，**不需要提前安装任何依赖**。
@@ -127,8 +104,6 @@ irm https://raw.kkgithub.com/Tght1211/lan-proxy-gateway/main/install.ps1 | iex
 去 Releases 页面直接下载二进制文件（任选一个能打开的链接）：
 
 - GitHub 直连：https://github.com/Tght1211/lan-proxy-gateway/releases
-- ghproxy 镜像：https://mirror.ghproxy.com/https://github.com/Tght1211/lan-proxy-gateway/releases
-- kkgithub 镜像：https://kkgithub.com/Tght1211/lan-proxy-gateway/releases
 
 根据你的系统下载对应文件：
 
