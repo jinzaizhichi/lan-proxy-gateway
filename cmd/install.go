@@ -1,13 +1,17 @@
 package cmd
 
 import (
+	"archive/zip"
 	"bufio"
+	"compress/gzip"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
@@ -28,34 +32,17 @@ var installCmd = &cobra.Command{
 func downloadMihomo() error {
 	ui.Info("正在自动下载 mihomo...")
 
-	goarch := runtime.GOARCH
-	goos := runtime.GOOS
-
-	var mihomoArch string
-	switch {
-	case goos == "darwin" && goarch == "arm64":
-		mihomoArch = "darwin-arm64"
-	case goos == "darwin" && goarch == "amd64":
-		mihomoArch = "darwin-amd64"
-	case goos == "linux" && goarch == "amd64":
-		mihomoArch = "linux-amd64"
-	case goos == "linux" && goarch == "arm64":
-		mihomoArch = "linux-arm64"
-	default:
-		return fmt.Errorf("不支持的平台: %s/%s", goos, goarch)
+	spec, err := resolveMihomoAsset(runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		return err
 	}
-	_ = goos
-
-	// Get latest version (hardcoded to avoid dependency)
-	version := "v1.19.8"
-	url := fmt.Sprintf("https://github.com/MetaCubeX/mihomo/releases/download/%s/mihomo-%s", version, mihomoArch)
 
 	// Try mirrors in order
 	mirrors := []string{
-		url,
-		"https://ghp.ci/" + url,
-		"https://hub.gitmirror.com/" + url,
-		"https://github.moeyy.xyz/" + url,
+		spec.URL,
+		"https://ghp.ci/" + spec.URL,
+		"https://hub.gitmirror.com/" + spec.URL,
+		"https://github.moeyy.xyz/" + spec.URL,
 	}
 
 	// Find binary installation path
@@ -67,27 +54,33 @@ func downloadMihomo() error {
 		return fmt.Errorf("创建目录失败: %v", err)
 	}
 
+	tmpDir, err := os.MkdirTemp("", "gateway-mihomo-*")
+	if err != nil {
+		return fmt.Errorf("创建临时目录失败: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	archivePath := filepath.Join(tmpDir, spec.AssetName)
+
 	// Try downloading from each URL
 	for i, mirrorURL := range mirrors {
 		ui.Info("尝试从 %s 下载...", getDomain(mirrorURL))
-
-		// Download with curl
-		cmd := exec.Command("curl", "-fsSL", "-o", binPath, mirrorURL)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-
-		err := cmd.Run()
-		if err == nil {
-			// Make executable
-			if err := os.Chmod(binPath, 0755); err != nil {
-				return fmt.Errorf("设置权限失败: %v", err)
+		if err := downloadFile(mirrorURL, archivePath); err == nil {
+			if err := extractMihomoArchive(archivePath, binPath, spec); err != nil {
+				os.Remove(binPath)
+				return fmt.Errorf("解压 mihomo 失败: %v", err)
 			}
-
+			if runtime.GOOS != "windows" {
+				if err := os.Chmod(binPath, 0755); err != nil {
+					return fmt.Errorf("设置权限失败: %v", err)
+				}
+			}
 			ui.Success("mihomo 下载成功")
 			return nil
 		}
 
 		// Remove partially downloaded file
+		os.Remove(archivePath)
 		os.Remove(binPath)
 
 		if i == len(mirrors)-1 {
@@ -96,6 +89,129 @@ func downloadMihomo() error {
 	}
 
 	return fmt.Errorf("mihomo 下载失败")
+}
+
+type mihomoAssetSpec struct {
+	Version   string
+	AssetName string
+	Format    string
+	URL       string
+}
+
+func resolveMihomoAsset(goos, goarch string) (mihomoAssetSpec, error) {
+	version := "v1.19.8"
+	spec := mihomoAssetSpec{Version: version}
+
+	switch {
+	case goos == "darwin" && goarch == "arm64":
+		spec.AssetName = fmt.Sprintf("mihomo-darwin-arm64-%s.gz", version)
+		spec.Format = "gz"
+	case goos == "darwin" && goarch == "amd64":
+		spec.AssetName = fmt.Sprintf("mihomo-darwin-amd64-compatible-%s.gz", version)
+		spec.Format = "gz"
+	case goos == "linux" && goarch == "amd64":
+		spec.AssetName = fmt.Sprintf("mihomo-linux-amd64-compatible-%s.gz", version)
+		spec.Format = "gz"
+	case goos == "linux" && goarch == "arm64":
+		spec.AssetName = fmt.Sprintf("mihomo-linux-arm64-%s.gz", version)
+		spec.Format = "gz"
+	case goos == "windows" && goarch == "amd64":
+		spec.AssetName = fmt.Sprintf("mihomo-windows-amd64-compatible-%s.zip", version)
+		spec.Format = "zip"
+	default:
+		return mihomoAssetSpec{}, fmt.Errorf("不支持的平台: %s/%s", goos, goarch)
+	}
+
+	spec.URL = fmt.Sprintf("https://github.com/MetaCubeX/mihomo/releases/download/%s/%s", version, spec.AssetName)
+	return spec, nil
+}
+
+func downloadFile(url, dest string) error {
+	client := &http.Client{Timeout: 120 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+
+	f, err := os.Create(dest)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	if _, err := io.Copy(f, resp.Body); err != nil {
+		os.Remove(dest)
+		return err
+	}
+	return nil
+}
+
+func extractMihomoArchive(archivePath, binPath string, spec mihomoAssetSpec) error {
+	switch spec.Format {
+	case "gz":
+		return extractGzipBinary(archivePath, binPath)
+	case "zip":
+		return extractZipBinary(archivePath, binPath)
+	default:
+		return fmt.Errorf("未知的归档格式: %s", spec.Format)
+	}
+}
+
+func extractGzipBinary(archivePath, binPath string) error {
+	src, err := os.Open(archivePath)
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+
+	gr, err := gzip.NewReader(src)
+	if err != nil {
+		return err
+	}
+	defer gr.Close()
+
+	dst, err := os.Create(binPath)
+	if err != nil {
+		return err
+	}
+	defer dst.Close()
+
+	_, err = io.Copy(dst, gr)
+	return err
+}
+
+func extractZipBinary(archivePath, binPath string) error {
+	zr, err := zip.OpenReader(archivePath)
+	if err != nil {
+		return err
+	}
+	defer zr.Close()
+
+	for _, f := range zr.File {
+		if strings.EqualFold(filepath.Base(f.Name), "mihomo.exe") {
+			rc, err := f.Open()
+			if err != nil {
+				return err
+			}
+			defer rc.Close()
+
+			dst, err := os.Create(binPath)
+			if err != nil {
+				return err
+			}
+			defer dst.Close()
+
+			_, err = io.Copy(dst, rc)
+			return err
+		}
+	}
+
+	return fmt.Errorf("压缩包中未找到 mihomo.exe")
 }
 
 // Extract domain from URL for display

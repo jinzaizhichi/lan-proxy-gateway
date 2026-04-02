@@ -32,7 +32,7 @@ func (p *impl) FindBinary() (string, error) {
 }
 
 func (p *impl) GetBinaryPath() string {
-	return filepath.Join(os.Getenv("ProgramFiles"), "mihomo", "mihomo.exe")
+	return filepath.Join(os.Getenv("LOCALAPPDATA"), "mihomo", "mihomo.exe")
 }
 
 func (p *impl) IsRunning() (bool, int, error) {
