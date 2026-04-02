@@ -8,16 +8,37 @@
 
 ## 这是什么，我能用来干嘛？
 
-家里总有些设备**没法装代理软件**：Switch、PS5、Apple TV、智能电视……
+家里总有些设备**没法或不方便装代理软件**：Switch、PS5 压根装不了，智能电视生态封闭，Apple TV 虽然能装但又麻烦……
 
-这个工具把你的电脑变成一台"网关"：其他设备只需要把网络设置里的"网关"和"DNS"改成你电脑的 IP，流量就会自动走代理，**无需在每台设备上安装任何 App**。
+用这个工具，统一在电脑上处理，**所有设备改个网关设置就能用，一个都不用装代理 App**。
 
-```
-你的设备（Switch / PS5 / 手机 / 电视）
-        ↓ 网关指向电脑 IP
-    你的电脑（运行本工具）
-        ↓ 自动分流
- 国内流量直连 / 国外流量走代理 / 广告拦截
+```mermaid
+graph TD
+    Internet(("🌐 互联网"))
+    Router["🔲 路由器<br/>192.168.x.1"]
+    Mac["🖥 网关电脑<br/>运行 mihomo · 192.168.x.2"]
+    Switch["🎮 Switch<br/>YouTube · eShop"]
+    ATV["📺 Apple TV<br/>Netflix · Disney+"]
+    PS5["🕹 PS5 / Xbox<br/>PSN · 联机加速"]
+    TV["📡 智能电视<br/>流媒体"]
+    Phone["📱 手机 / 电脑<br/>正常上网"]
+
+    Internet <--> Router
+    Router <--> Mac
+    Router <--> Phone
+    Mac -- "只改网关 IP（DNS 保持自动）" --> Switch
+    Mac -- "网关 + DNS 指向网关 IP" --> ATV
+    Mac -- "网关 + DNS 指向网关 IP" --> PS5
+    Mac -- "网关 + DNS 指向网关 IP" --> TV
+
+    style Mac fill:#2d9e2d,color:#fff,stroke:#1a7a1a
+    style Internet fill:#4a90d9,color:#fff,stroke:#2a6ab9
+    style Router fill:#f5a623,color:#fff,stroke:#d4891a
+    style Switch fill:#e60012,color:#fff,stroke:#b8000e
+    style ATV fill:#555,color:#fff,stroke:#333
+    style PS5 fill:#006fcd,color:#fff,stroke:#0055a0
+    style TV fill:#8e44ad,color:#fff,stroke:#6c3483
+    style Phone fill:#95a5a6,color:#fff,stroke:#7f8c8d
 ```
 
 ---
@@ -58,37 +79,58 @@
 
 ### 推荐方式：一键安装脚本
 
-打开终端（Mac 上搜索"终端"或"Terminal"，Windows 打开"PowerShell"），粘贴下面的命令运行：
+> **脚本下载成功后，后续的二进制文件会自动尝试多个镜像，无需手动干预。**
+
+打开终端（Mac 上搜索"终端"或"Terminal"，Windows 打开"PowerShell"），**从下面按顺序逐条试**，哪条能跑通用哪条：
 
 **macOS / Linux：**
 
 ```bash
-# 如果能直连 GitHub（首选）
+# 线路 1：直连 GitHub
 curl -fsSL https://raw.githubusercontent.com/Tght1211/lan-proxy-gateway/main/install.sh | bash
 
-# 如果 GitHub 访问慢，用镜像（二选一）
+# 线路 2：gitmirror（国内速度较快）
 curl -fsSL https://raw.gitmirror.com/Tght1211/lan-proxy-gateway/main/install.sh | bash
+
+# 线路 3：ghproxy
 curl -fsSL https://mirror.ghproxy.com/https://raw.githubusercontent.com/Tght1211/lan-proxy-gateway/main/install.sh | bash
+
+# 线路 4：kkgithub
+curl -fsSL https://raw.kkgithub.com/Tght1211/lan-proxy-gateway/main/install.sh | bash
+
+# 线路 5：moeyy
+curl -fsSL https://github.moeyy.xyz/https://raw.githubusercontent.com/Tght1211/lan-proxy-gateway/main/install.sh | bash
 ```
 
 **Windows（PowerShell，右键"以管理员身份运行"）：**
 
 ```powershell
-# 如果能直连 GitHub（首选）
+# 线路 1：直连 GitHub
 irm https://raw.githubusercontent.com/Tght1211/lan-proxy-gateway/main/install.ps1 | iex
 
-# 如果 GitHub 访问慢，用镜像（二选一）
+# 线路 2：gitmirror
 irm https://raw.gitmirror.com/Tght1211/lan-proxy-gateway/main/install.ps1 | iex
+
+# 线路 3：ghproxy
 irm https://mirror.ghproxy.com/https://raw.githubusercontent.com/Tght1211/lan-proxy-gateway/main/install.ps1 | iex
+
+# 线路 4：kkgithub
+irm https://raw.kkgithub.com/Tght1211/lan-proxy-gateway/main/install.ps1 | iex
 ```
 
 脚本会自动完成所有安装，**不需要提前安装任何依赖**。
 
 ---
 
-### 备用方式：手动下载
+### 备用方式：手动下载（脚本全部失败时）
 
-如果脚本无法运行，去 [Releases 页面](https://github.com/Tght1211/lan-proxy-gateway/releases) 直接下载对应你系统的文件：
+去 Releases 页面直接下载二进制文件（任选一个能打开的链接）：
+
+- GitHub 直连：https://github.com/Tght1211/lan-proxy-gateway/releases
+- ghproxy 镜像：https://mirror.ghproxy.com/https://github.com/Tght1211/lan-proxy-gateway/releases
+- kkgithub 镜像：https://kkgithub.com/Tght1211/lan-proxy-gateway/releases
+
+根据你的系统下载对应文件：
 
 | 你的电脑 | 下载哪个文件 |
 |---------|------------|
