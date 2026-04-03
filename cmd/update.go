@@ -73,7 +73,12 @@ func runUpdate(cmd *cobra.Command, args []string) {
 		ui.Error("下载失败: %s", err)
 		os.Exit(1)
 	}
-	defer os.Remove(tmpFile)
+	keepTmpFile := false
+	defer func() {
+		if !keepTmpFile {
+			os.Remove(tmpFile)
+		}
+	}()
 
 	os.Chmod(tmpFile, 0755)
 
@@ -85,14 +90,31 @@ func runUpdate(cmd *cobra.Command, args []string) {
 		ui.Success("下载完成")
 	}
 
-	ui.Step(3, 4, "替换二进制文件...")
-
 	self, err := os.Executable()
 	if err != nil {
 		ui.Error("无法获取当前可执行文件路径: %s", err)
 		os.Exit(1)
 	}
 	self, _ = filepath.EvalSymlinks(self)
+
+	if runtime.GOOS == "windows" {
+		cfgPath, _ := filepath.Abs(resolveConfigPath())
+		dDir, _ := filepath.Abs(resolveDataDir())
+
+		ui.Step(3, 4, "停止当前网关...")
+		runStop(cmd, args)
+
+		ui.Step(4, 4, "后台应用更新并重新启动...")
+		if err := scheduleWindowsSelfUpdate(self, tmpFile, cfgPath, dDir); err != nil {
+			ui.Error("安排 Windows 更新失败: %s", err)
+			os.Exit(1)
+		}
+		keepTmpFile = true
+		ui.Success("更新已安排，当前进程退出后会自动替换并重新启动网关")
+		return
+	}
+
+	ui.Step(3, 4, "替换二进制文件...")
 
 	backupPath := self + ".bak"
 	if err := os.Rename(self, backupPath); err != nil {
@@ -239,4 +261,64 @@ func copyFile(src, dst string) error {
 
 	_, err = io.Copy(out, in)
 	return err
+}
+
+func scheduleWindowsSelfUpdate(target, source, configPath, dataDir string) error {
+	scriptPath, err := writeWindowsUpdateScript(target, source, configPath, dataDir)
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command("cmd", "/C", scriptPath)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func writeWindowsUpdateScript(target, source, configPath, dataDir string) (string, error) {
+	f, err := os.CreateTemp("", "gateway-update-*.cmd")
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	if _, err := io.WriteString(f, buildWindowsUpdateScript(target, source, configPath, dataDir)); err != nil {
+		return "", err
+	}
+	return f.Name(), nil
+}
+
+func buildWindowsUpdateScript(target, source, configPath, dataDir string) string {
+	return strings.Join([]string{
+		"@echo off",
+		"setlocal",
+		fmt.Sprintf(`set "TARGET=%s"`, escapeWindowsBatchValue(target)),
+		fmt.Sprintf(`set "SOURCE=%s"`, escapeWindowsBatchValue(source)),
+		fmt.Sprintf(`set "CONFIG=%s"`, escapeWindowsBatchValue(configPath)),
+		fmt.Sprintf(`set "DATA=%s"`, escapeWindowsBatchValue(dataDir)),
+		`set "BACKUP=%TARGET%.bak"`,
+		`del /f /q "%BACKUP%" >nul 2>&1`,
+		`for /L %%I in (1,1,60) do (`,
+		`  move /Y "%TARGET%" "%BACKUP%" >nul 2>&1`,
+		`  if exist "%BACKUP%" goto replace`,
+		`  timeout /t 1 /nobreak >nul`,
+		`)`,
+		`exit /b 1`,
+		`:replace`,
+		`copy /Y "%SOURCE%" "%TARGET%" >nul 2>&1`,
+		`if errorlevel 1 goto rollback`,
+		`del /f /q "%SOURCE%" >nul 2>&1`,
+		`"%TARGET%" start --config "%CONFIG%" --data-dir "%DATA%" >nul 2>&1 <nul`,
+		`del /f /q "%BACKUP%" >nul 2>&1`,
+		`del /f /q "%~f0"`,
+		`exit /b 0`,
+		`:rollback`,
+		`move /Y "%BACKUP%" "%TARGET%" >nul 2>&1`,
+		`exit /b 1`,
+		"",
+	}, "\r\n")
+}
+
+func escapeWindowsBatchValue(value string) string {
+	return strings.ReplaceAll(value, "%", "%%")
 }

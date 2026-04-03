@@ -347,10 +347,7 @@ func runInstall(cmd *cobra.Command, args []string) {
 			fmt.Print("> ")
 			path, _ := reader.ReadString('\n')
 			path = strings.TrimSpace(path)
-			if strings.HasPrefix(path, "~") {
-				home, _ := os.UserHomeDir()
-				path = filepath.Join(home, path[1:])
-			}
+			path = expandUserPath(path)
 			if _, err := os.Stat(path); os.IsNotExist(err) {
 				ui.Error("文件不存在: %s", path)
 				os.Exit(1)

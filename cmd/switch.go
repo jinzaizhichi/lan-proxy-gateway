@@ -91,11 +91,7 @@ func runSwitch(cmd *cobra.Command, args []string) {
 	// Switch to file mode
 	if target == "file" {
 		if len(args) >= 2 {
-			path := args[1]
-			if strings.HasPrefix(path, "~") {
-				home, _ := os.UserHomeDir()
-				path = filepath.Join(home, path[1:])
-			}
+			path := expandUserPath(args[1])
 			if _, err := os.Stat(path); os.IsNotExist(err) {
 				ui.Error("文件不存在: %s", path)
 				os.Exit(1)
@@ -291,9 +287,5 @@ func extensionModeName(mode string) string {
 }
 
 func expandPath(path string) string {
-	if strings.HasPrefix(path, "~") {
-		home, _ := os.UserHomeDir()
-		return filepath.Join(home, path[1:])
-	}
-	return path
+	return expandUserPath(path)
 }

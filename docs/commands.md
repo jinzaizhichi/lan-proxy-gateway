@@ -104,8 +104,8 @@
 
 | 命令 | 说明 | 需要管理员权限 |
 |---|---|:---:|
-| `sudo gateway service install` | 安装开机自启服务 | 是 |
-| `sudo gateway service uninstall` | 卸载开机自启服务 | 是 |
+| `sudo gateway service install` | 安装开机自启；Windows 下底层使用计划任务 | 是 |
+| `sudo gateway service uninstall` | 卸载开机自启 | 是 |
 
 ## AI Skill
 

@@ -47,7 +47,13 @@ func (p *impl) ClearFirewallRules() error {
 }
 
 func (p *impl) DetectDefaultInterface() (string, error) {
-	// Use Go's net package for reliable cross-locale detection
+	if route, err := currentWindowsDefaultRoute(); err == nil {
+		if iface, err := detectWindowsInterfaceByIP(route.InterfaceIP); err == nil {
+			return iface, nil
+		}
+	}
+
+	// Fallback: pick the first active IPv4 interface if route parsing fails.
 	ifaces, err := net.Interfaces()
 	if err != nil {
 		return "", err
@@ -87,19 +93,11 @@ func (p *impl) DetectInterfaceIP(iface string) (string, error) {
 }
 
 func (p *impl) DetectGateway() (string, error) {
-	out, err := exec.Command("cmd", "/C", "route", "print", "0.0.0.0").Output()
-	if err != nil {
-		return "", err
+	route, err := currentWindowsDefaultRoute()
+	if err == nil {
+		return route.Gateway, nil
 	}
-	// Parse the routing table output for the default gateway
-	lines := strings.Split(string(out), "\n")
-	for _, line := range lines {
-		fields := strings.Fields(line)
-		if len(fields) >= 3 && fields[0] == "0.0.0.0" {
-			return fields[2], nil
-		}
-	}
-	return "", fmt.Errorf("无法检测网关地址")
+	return "", err
 }
 
 func (p *impl) DetectTUNInterface() (string, error) {
@@ -119,4 +117,43 @@ func (p *impl) DetectTUNInterface() (string, error) {
 		}
 	}
 	return "", fmt.Errorf("未检测到 TUN 接口")
+}
+
+func currentWindowsDefaultRoute() (windowsDefaultRoute, error) {
+	outputs := [][]string{
+		{"route", "print", "-4", "0.0.0.0"},
+		{"cmd", "/C", "route", "print", "0.0.0.0"},
+	}
+	for _, args := range outputs {
+		out, err := exec.Command(args[0], args[1:]...).Output()
+		if err != nil {
+			continue
+		}
+		if route, ok := parseWindowsDefaultRoute(string(out)); ok {
+			return route, nil
+		}
+	}
+	return windowsDefaultRoute{}, fmt.Errorf("无法检测默认路由")
+}
+
+func detectWindowsInterfaceByIP(targetIP string) (string, error) {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return "", err
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			if ipnet, ok := addr.(*net.IPNet); ok && ipnet.IP.To4() != nil && ipnet.IP.String() == targetIP {
+				return iface.Name, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("无法根据 %s 匹配网络接口", targetIP)
 }

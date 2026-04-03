@@ -8,10 +8,15 @@ All notable changes to this project will be documented here.
 
 - **Chinese garbled output** — set the console to UTF-8 (code page 65001) and enable ANSI virtual terminal processing at startup, so all Chinese text renders correctly in cmd.exe, PowerShell, and Windows Terminal instead of appearing as mojibake
 - **`gateway` not found after install** — `install.ps1` now also refreshes `$env:Path` in the current PowerShell session, so the command is usable immediately without reopening the terminal
+- **Administrator detection** — replaced the fragile `net session` probe with a Windows token membership check, so admin detection no longer depends on optional services
 - **`IsRunning()` locale bug** — replaced the GBK-unsafe `"没有"` / `"No tasks"` check with a locale-independent `"mihomo.exe"` presence check, so process detection works correctly on Chinese Windows
 - **`IsIPForwardingEnabled()` locale bug** — replaced `netsh` output parsing (which emits Chinese text on Chinese Windows) with a direct registry read of `HKLM\...\IPEnableRouter`, making forwarding detection locale-independent
+- **Default NIC detection** — Windows now resolves the active interface from the default route table instead of guessing the first active adapter, which avoids picking VPN / virtualization adapters by mistake
+- **Auto-start implementation** — Windows `gateway service install` now installs an auto-start Task Scheduler task instead of trying to register the CLI as a native `sc.exe` service
+- **Self-update on Windows** — `gateway update` now uses a detached updater script so the running `.exe` can be replaced and restarted correctly even while the current binary is locked
 - **`/tmp/` path hardcoded** — `start` and `console` commands now use `os.TempDir()` for the log file path, which resolves to the correct temporary directory on Windows
-- **`sudo` in all command hints** — every hint message now uses a runtime-aware helper that outputs `gateway <sub>` on Windows and `sudo gateway <sub>` on Unix, across all commands: `start`, `stop`, `restart`, `console`, `update`, `tun`, `chains`, `switch`, `status`
+- **Unix-only hints leaking into Windows** — runtime hints now use `gateway <sub>` / `Get-Content -Wait` on Windows instead of `sudo ...` and `tail -f ...`
+- **`~\...` local config paths** — file-path expansion now supports Windows-style home shortcuts in setup and switching flows
 
 ## v2.2.6 - 2026-04-03
 

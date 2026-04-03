@@ -167,6 +167,11 @@ sudo gateway start
 gateway start
 ```
 
+补充说明：
+
+- `gateway update` 在 Windows 下会走后台替换流程，当前 `.exe` 退出后自动完成更新并重新启动网关
+- `gateway service install` 在 Windows 下会安装开机自启任务，不需要把 CLI 伪装成 `sc.exe` 服务
+
 默认模式下，启动成功后会进入运行中工作台，终端会显示：
 
 - 当前读取的配置文件路径
@@ -278,6 +283,7 @@ gateway status
 | `gateway switch` | 切换代理来源和扩展模式 |
 | `gateway skill` | 查看 AI skill 信息 |
 | `gateway permission install` | 安装免密控制权限（仅 macOS/Linux） |
+| `sudo gateway service install` | 安装开机自启（Windows 下底层使用计划任务） |
 | `sudo gateway update` | 升级到最新版 |
 
 完整命令见 [docs/commands.md](docs/commands.md)。

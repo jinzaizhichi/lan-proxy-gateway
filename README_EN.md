@@ -167,6 +167,11 @@ sudo gateway start
 gateway start
 ```
 
+Extra notes:
+
+- `gateway update` now uses a background replacement flow on Windows, so the current `.exe` can be swapped after exit and the gateway is restarted automatically
+- `gateway service install` uses Task Scheduler on Windows instead of pretending the CLI itself is a native `sc.exe` service
+
 By default, startup enters the runtime workspace and shows:
 
 - the config file path in use
@@ -278,6 +283,7 @@ You will see:
 | `gateway switch` | Switch proxy source and extension mode |
 | `gateway skill` | Show AI skill info |
 | `gateway permission install` | Install passwordless control rule (macOS/Linux only) |
+| `sudo gateway service install` | Install auto-start (implemented with Task Scheduler on Windows) |
 | `sudo gateway update` | Upgrade to the latest version |
 
 Full command reference: [docs/en/commands.md](docs/en/commands.md)

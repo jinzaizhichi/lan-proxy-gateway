@@ -95,6 +95,11 @@ Focus: fix the official Windows `mihomo` zip extraction naming and make `gateway
 Positioning: console-workbench expansion.  
 Focus: bring proxy source, TUN, local bypass, rule toggles, extension mode, and residential-proxy fields directly into both the TUI and the plain command console, while also polishing refresh and navigation-boundary feedback.
 
+### v2.2.7
+
+Positioning: Windows compatibility hardening and verification fixes.  
+Focus: build on the original terminal/localization work by tightening administrator detection, self-update, default-interface detection, auto-start behavior, log hints, and Windows-style path expansion.
+
 ## Rules for Future Versions
 
 ### Patch

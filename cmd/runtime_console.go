@@ -2346,7 +2346,7 @@ func (m runtimeConsoleModel) captureLogLines(n int) []string {
 		}
 		out = append(out, "  "+line)
 	}
-	out = append(out, noteLine("实时查看: tail -f "+m.logFile))
+	out = append(out, noteLine("实时查看: "+followLogCommand(m.logFile)))
 	return out
 }
 
@@ -2572,7 +2572,7 @@ func renderGuideDetailLines(cfg *config.Config, logFile string) []string {
 		"  /status       查看完整运行状态和出口网络",
 		"  /device       查看设备接入说明",
 		"  /logs         查看最近日志",
-		"  tail -f "+logFile,
+		"  "+followLogCommand(logFile),
 	)
 	return lines
 }

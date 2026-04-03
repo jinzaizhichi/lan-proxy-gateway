@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/spf13/cobra"
 	"github.com/tght/lan-proxy-gateway/internal/platform"
@@ -66,7 +67,11 @@ func runServiceInstall(cmd *cobra.Command, args []string) {
 
 	ui.Success("开机自启动服务已安装")
 	fmt.Println()
-	fmt.Println("  服务将在开机时自动启动，崩溃时自动重启。")
+	if runtime.GOOS == "windows" {
+		fmt.Println("  已安装开机自启任务；Windows 启动后会自动拉起网关。")
+	} else {
+		fmt.Println("  服务将在开机时自动启动，崩溃时自动重启。")
+	}
 	fmt.Println()
 }
 

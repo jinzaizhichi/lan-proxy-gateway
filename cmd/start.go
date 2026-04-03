@@ -272,7 +272,7 @@ func runSimpleRuntimeConsole(logFile, ip, iface, dDir string) consoleAction {
 			ui.Separator()
 			printLastLines(logFile, 30)
 			fmt.Println()
-			fmt.Printf("  实时查看: tail -f %s\n", logFile)
+			fmt.Printf("  实时查看: %s\n", followLogCommand(logFile))
 			fmt.Println()
 		case "guide":
 			printStartGuide(cfg, logFile)
@@ -438,7 +438,7 @@ func printStartGuide(cfg *config.Config, logFile string) {
 		fmt.Println("  2. 运行 gateway chains，体验内置链式代理向导")
 	}
 	fmt.Println("  3. 运行 gateway config，集中管理代理来源 / 规则 / 扩展")
-	fmt.Printf("  4. tail -f %s\n", logFile)
+	fmt.Printf("  4. %s\n", followLogCommand(logFile))
 	fmt.Println()
 }
 

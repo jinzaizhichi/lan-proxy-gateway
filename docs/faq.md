@@ -16,7 +16,7 @@
 > 按顺序检查：① 运行 `gateway status` 确认网关正在运行；② 确认设备的网关和 DNS 都填了你电脑的 IP；③ 确认 IP 地址的前三段和电脑一致（如都是 `192.168.1.x`）；④ 电脑上先 `sudo gateway stop` 再 `sudo gateway start` 重启一次。
 
 **Q：Windows 上能用吗？**
-> 完整支持。Windows 上的实现：IP 转发通过 `netsh` 命令开启，系统服务通过 `sc.exe` 管理（开机自启、崩溃自动重启）。运行时请用"以管理员身份运行"的 PowerShell 或命令提示符，等同于 macOS 的 `sudo`。
+> 完整支持。Windows 上的实现：IP 转发通过 `netsh` 开启，状态检测和默认网卡识别都按 Windows 本地行为做了兼容；开机自启通过任务计划程序安装启动任务。运行时请用"以管理员身份运行"的 PowerShell 或命令提示符，等同于 macOS 的 `sudo`。
 
 **Q：能安装在路由器上吗？**
 > 取决于路由器的系统和硬件：

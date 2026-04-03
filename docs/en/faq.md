@@ -18,7 +18,7 @@
 > Check these in order: 1. run `gateway status` to confirm the gateway is running; 2. confirm both gateway and DNS on the device point to your computer IP; 3. confirm the first three IP segments match your computer, such as `192.168.1.x`; 4. restart once with `sudo gateway stop` and `sudo gateway start`.
 
 **Q: Does it work on Windows?**  
-> Yes. Windows is fully supported. IP forwarding is enabled through `netsh`, and services are managed through `sc.exe` for auto-start and restart on failure. Run PowerShell or Command Prompt as Administrator, which is the Windows equivalent of `sudo`.
+> Yes. Windows is fully supported. IP forwarding is enabled through `netsh`, status checks and default-interface detection are handled in a Windows-aware way, and auto-start is installed through Task Scheduler. Run PowerShell or Command Prompt as Administrator, which is the Windows equivalent of `sudo`.
 
 **Q: Can I run it on a router?**  
 > It depends on the router system and hardware.

@@ -106,8 +106,8 @@ This makes the project feel closer to a CLI workbench for Clash Verge Rev style 
 
 | Command | Purpose | Requires admin |
 |---|---|:---:|
-| `sudo gateway service install` | Install an auto-start system service | Yes |
-| `sudo gateway service uninstall` | Remove the auto-start service | Yes |
+| `sudo gateway service install` | Install auto-start; on Windows this uses Task Scheduler | Yes |
+| `sudo gateway service uninstall` | Remove auto-start | Yes |
 
 ## AI Skill
 
