@@ -193,7 +193,7 @@ func extractZipBinary(archivePath, binPath string) error {
 	defer zr.Close()
 
 	for _, f := range zr.File {
-		if strings.EqualFold(filepath.Base(f.Name), "mihomo.exe") {
+		if isMihomoWindowsBinary(f.Name) {
 			rc, err := f.Open()
 			if err != nil {
 				return err
@@ -212,6 +212,14 @@ func extractZipBinary(archivePath, binPath string) error {
 	}
 
 	return fmt.Errorf("压缩包中未找到 mihomo.exe")
+}
+
+func isMihomoWindowsBinary(name string) bool {
+	base := strings.ToLower(filepath.Base(name))
+	if base == "mihomo.exe" {
+		return true
+	}
+	return strings.HasPrefix(base, "mihomo-") && strings.HasSuffix(base, ".exe")
 }
 
 // Extract domain from URL for display

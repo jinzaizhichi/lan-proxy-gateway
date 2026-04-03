@@ -65,7 +65,7 @@ func runUpdate(cmd *cobra.Command, args []string) {
 
 	ui.Step(2, 4, "下载新版本...")
 
-	asset := fmt.Sprintf("gateway-%s-%s", runtime.GOOS, runtime.GOARCH)
+	asset := releaseAssetName(runtime.GOOS, runtime.GOARCH)
 	downloadURL := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s", repo, latest, asset)
 
 	tmpFile, err := downloadWithFallback(downloadURL)
@@ -119,6 +119,14 @@ func fetchLatestTag() (string, error) {
 	return fetchLatestTagWithTimeout(15 * time.Second)
 }
 
+func releaseAssetName(goos, goarch string) string {
+	asset := fmt.Sprintf("gateway-%s-%s", goos, goarch)
+	if goos == "windows" {
+		return asset + ".exe"
+	}
+	return asset
+}
+
 func fetchLatestTagWithTimeout(timeout time.Duration) (string, error) {
 	url := apiBase + "/releases/latest"
 	body, err := httpGetWithFallbackTimeout(url, timeout)
@@ -166,7 +174,7 @@ func httpGetWithFallbackTimeout(url string, timeout time.Duration) (io.ReadClose
 }
 
 func downloadWithFallback(url string) (string, error) {
-	tmpFile, err := os.CreateTemp("", "gateway-update-*")
+	tmpFile, err := os.CreateTemp("", updateTempPattern(runtime.GOOS))
 	if err != nil {
 		return "", err
 	}
@@ -207,6 +215,13 @@ func downloadWithFallback(url string) (string, error) {
 	tmpFile.Close()
 	os.Remove(tmpPath)
 	return "", fmt.Errorf("所有下载源均失败")
+}
+
+func updateTempPattern(goos string) string {
+	if goos == "windows" {
+		return "gateway-update-*.exe"
+	}
+	return "gateway-update-*"
 }
 
 func copyFile(src, dst string) error {

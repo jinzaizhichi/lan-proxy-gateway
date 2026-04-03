@@ -85,6 +85,11 @@ Focus: make `R` refresh the current page and add a visible but restrained refres
 Positioning: TUI interaction-structure polish.  
 Focus: clearly separate info pages from action pages, add real right-pane focus, and merge node switching with built-in latency testing into a node workbench.
 
+### v2.2.5
+
+Positioning: Windows kernel and upgrade-path fixes.  
+Focus: fix the official Windows `mihomo` zip extraction naming and make `gateway update` request the correct `.exe` release asset.
+
 ## Rules for Future Versions
 
 ### Patch

@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented here.
 
+## v2.2.5 - 2026-04-03
+
+### Fixed
+
+- Fixed Windows `gateway install` so it can extract the official `mihomo-windows-amd64-compatible-*.zip` package and rename the extracted kernel to local `mihomo.exe`
+- Fixed Windows `gateway update` so it downloads `gateway-windows-amd64.exe` instead of a missing extensionless asset
+- Re-verified the pinned official `mihomo v1.19.8` Windows asset URL and archive structure against the upstream MetaCubeX release
+
+### Documentation
+
+- Updated the Chinese and English READMEs plus release notes to clarify the Windows kernel download path
+
 ## v2.2.4 - 2026-04-03
 
 ### Fixed

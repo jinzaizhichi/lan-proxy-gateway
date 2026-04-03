@@ -33,7 +33,7 @@ func TestExtractZipBinary(t *testing.T) {
 	}
 
 	zw := zip.NewWriter(out)
-	w, err := zw.Create("mihomo.exe")
+	w, err := zw.Create("release/mihomo-windows-amd64-compatible.exe")
 	if err != nil {
 		t.Fatalf("create zip entry: %v", err)
 	}
@@ -57,6 +57,23 @@ func TestExtractZipBinary(t *testing.T) {
 	}
 	if string(data) != "zip-binary" {
 		t.Fatalf("unexpected extracted content: %q", string(data))
+	}
+}
+
+func TestIsMihomoWindowsBinary(t *testing.T) {
+	cases := map[string]bool{
+		"mihomo.exe": true,
+		"release/mihomo-windows-amd64-compatible.exe": true,
+		"MIHOMO-WINDOWS-AMD64.EXE":                    true,
+		"mihomo":                                      false,
+		"gateway.exe":                                 false,
+		"mihomo-linux-amd64":                          false,
+	}
+
+	for name, want := range cases {
+		if got := isMihomoWindowsBinary(name); got != want {
+			t.Fatalf("isMihomoWindowsBinary(%q) = %v, want %v", name, got, want)
+		}
 	}
 }
 

@@ -143,7 +143,7 @@ gateway install
 
 The setup wizard will:
 
-1. download `mihomo`
+1. automatically download the official `mihomo` kernel (on Windows x86_64 it downloads the official zip and installs it locally as `mihomo.exe`)
 2. ask for a subscription URL or local config file
 3. generate `gateway.yaml`
 

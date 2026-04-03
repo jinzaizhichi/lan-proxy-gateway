@@ -143,7 +143,7 @@ gateway install
 
 安装向导会依次完成：
 
-1. 下载 `mihomo`
+1. 自动下载官方 `mihomo` 内核（Windows x86_64 会下载官方 zip 并安装为本地 `mihomo.exe`）
 2. 录入订阅链接或本地配置文件
 3. 生成 `gateway.yaml`
 
