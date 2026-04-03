@@ -8,7 +8,7 @@
 
 当前计划版本:
 
-- `v2.2.7`
+- `v2.2.8`
 
 ## 发布前检查
 
@@ -23,7 +23,7 @@ go test ./...
 4. 构建 release 资产:
 
 ```bash
-make build-all VERSION=v2.2.7
+make build-all VERSION=v2.2.8
 ```
 
 ## Release 资产
@@ -38,9 +38,9 @@ make build-all VERSION=v2.2.7
 ## 触发正式发布
 
 ```bash
-git tag v2.2.7
+git tag v2.2.8
 git push origin main
-git push origin v2.2.7
+git push origin v2.2.8
 ```
 
 GitHub Actions 会自动:
@@ -48,6 +48,9 @@ GitHub Actions 会自动:
 1. 构建多平台资产
 2. 上传到 GitHub Release
 3. 使用 `docs/releases/latest.md` 作为 release 说明
+4. 对应 workflow 是 `.github/workflows/release.yml` 里的 `Release`
+
+如果 release 被手动删掉、或者资产不完整，不需要重新打新版本，直接在 GitHub Actions 里重新运行该 tag 对应的 `Release` workflow 即可补发。
 
 ## 发布后检查
 

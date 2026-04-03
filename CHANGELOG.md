@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented here.
 
+## v2.2.8 - 2026-04-04
+
+### Changed
+
+- Replaced the old runtime-console home page with a Clash-style dashboard that surfaces subscription usage, current node, TUN status, traffic, IP path, and common-site latency in one screen
+- Simplified the top-level TUI layout into three tabs: Home, Proxy, and Subscription
+- Removed the old bottom command bar and moved confirmations plus parameter entry into centered modal overlays
+- Kept `R` refreshes on the current page instead of bouncing guide/info pages back to the home tab
+
+### Added
+
+- Added persistent subscription profiles via `proxy.profiles` and `current_profile`, so multiple URL/file subscriptions can be saved and switched cleanly
+- Added simple-console subscription commands: `subscription`, `subscription add url|file <name> <value>`, and `subscription use <name>`
+- Added richer left-side preview cards with "current summary" and "next step" hints for the focused workspace
+
+### Documentation
+
+- Updated the Chinese README and release notes for the dashboard redesign and subscription workspace flow
+
 ## v2.2.7 - 2026-04-03
 
 ### Fixed (Windows)
