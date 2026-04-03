@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented here.
 
+## v2.2.2 - 2026-04-03
+
+### Fixed
+
+- Replaced the TUI `功能导航` page with native TUI rendering so it no longer picks up broken separator lines or duplicated section titles
+- Added a real header focus state so `Esc` from the navigation list now returns to the top tabs as expected
+- Made the top tab area visibly focusable, with `←/→` to switch sections and `↓ / Enter` to go back into the action list
+
+### Documentation
+
+- Updated the Chinese and English READMEs with clearer runtime-console controls
+- Updated the command reference docs to explain the new header-focus navigation flow
+
 ## v2.2.1 - 2026-04-03
 
 ### Fixed

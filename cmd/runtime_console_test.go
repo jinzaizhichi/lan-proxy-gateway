@@ -109,3 +109,47 @@ func TestTabCompletionUsesNodesCommand(t *testing.T) {
 		t.Fatalf("expected tab completion to use /nodes, got %q", updated.inputValue)
 	}
 }
+
+func TestEscFromNavFocusMovesToHeader(t *testing.T) {
+	m := newRuntimeConsoleModel("/tmp/lan-proxy-gateway.log", "192.168.12.100", "en0", "data")
+	m.focus = consoleFocusNav
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	updated := next.(runtimeConsoleModel)
+
+	if updated.focus != consoleFocusHeader {
+		t.Fatalf("expected esc from nav to move focus to header, got %v", updated.focus)
+	}
+}
+
+func TestDownFromHeaderMovesToNav(t *testing.T) {
+	m := newRuntimeConsoleModel("/tmp/lan-proxy-gateway.log", "192.168.12.100", "en0", "data")
+	m.focus = consoleFocusHeader
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	updated := next.(runtimeConsoleModel)
+
+	if updated.focus != consoleFocusNav {
+		t.Fatalf("expected down from header to move focus to nav, got %v", updated.focus)
+	}
+}
+
+func TestRenderGuideDetailLinesUsesNativeSections(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Runtime.Tun.Enabled = true
+	cfg.Extension.Mode = "chains"
+	cfg.Extension.ResidentialChain = &config.ResidentialChain{Mode: "rule"}
+
+	lines := renderGuideDetailLines(cfg, "/tmp/lan-proxy-gateway.log")
+	got := strings.Join(lines, "\n")
+
+	if !strings.Contains(got, "当前主线") || !strings.Contains(got, "常用入口") {
+		t.Fatalf("expected guide sections, got %q", got)
+	}
+	if !strings.Contains(got, "/status") || !strings.Contains(got, "/config open") {
+		t.Fatalf("expected guide commands, got %q", got)
+	}
+	if strings.Contains(got, "──") {
+		t.Fatalf("expected native guide layout without separator lines, got %q", got)
+	}
+}

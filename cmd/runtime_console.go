@@ -66,7 +66,8 @@ const (
 type consoleFocus int
 
 const (
-	consoleFocusNav consoleFocus = iota
+	consoleFocusHeader consoleFocus = iota
+	consoleFocusNav
 	consoleFocusInput
 )
 
@@ -184,6 +185,11 @@ func (m runtimeConsoleModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch msg.String() {
+		case "esc":
+			if m.focus == consoleFocusNav {
+				m.focus = consoleFocusHeader
+			}
+			return m, nil
 		case "left":
 			m.prevTab()
 			m.refreshSelectionPreview()
@@ -193,10 +199,17 @@ func (m runtimeConsoleModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.refreshSelectionPreview()
 			return m, nil
 		case "up":
+			if m.focus == consoleFocusHeader {
+				return m, nil
+			}
 			m.moveCursor(-1)
 			m.refreshSelectionPreview()
 			return m, nil
 		case "down":
+			if m.focus == consoleFocusHeader {
+				m.focus = consoleFocusNav
+				return m, nil
+			}
 			m.moveCursor(1)
 			m.refreshSelectionPreview()
 			return m, nil
@@ -220,6 +233,10 @@ func (m runtimeConsoleModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			})
 			return m, nil
 		case "enter":
+			if m.focus == consoleFocusHeader {
+				m.focus = consoleFocusNav
+				return m, nil
+			}
 			return m.executeSelectedAction()
 		}
 
@@ -321,7 +338,7 @@ func (m *runtimeConsoleModel) handleCommand(value string) (tea.Model, tea.Cmd) {
 	case "logs", "log":
 		m.setDetail("最近日志", m.captureLogLines(30))
 	case "guide":
-		m.showCapturedDetail("功能导航", func() { printStartGuide(loadConfigOrDefault(), m.logFile) })
+		m.setDetail("功能导航", renderGuideDetailLines(loadConfigOrDefault(), m.logFile))
 	case "update":
 		if m.update == nil {
 			m.setDetail("升级提示", []string{noteLine("当前已经是最新版本，或本次未检测到更新。")})
@@ -427,6 +444,9 @@ func (m *runtimeConsoleModel) focusHint() string {
 	}
 	if m.focus == consoleFocusInput {
 		return "输入模式：Enter 执行，Tab 补全，Esc 返回导航"
+	}
+	if m.focus == consoleFocusHeader {
+		return "顶部聚焦：←/→ 切换分区，↓ / Enter 进入功能列表，/ 开始输入命令"
 	}
 	return "导航模式：←/→ 分区，↑/↓ 功能，/ 开始输入命令"
 }
@@ -679,9 +699,14 @@ func (m runtimeConsoleModel) renderHeader() string {
 	line3 := subStyle.Render(m.renderHeaderSummary())
 	line4 := subStyle.Render(activeTabDescription(m.tab) + "  ·  " + m.focusHint())
 
+	border := lipgloss.Color("#334155")
+	if m.focus == consoleFocusHeader && m.picker == pickerModeNone {
+		border = lipgloss.Color("#38bdf8")
+	}
+
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#38bdf8")).
+		BorderForeground(border).
 		Padding(0, 1).
 		Width(max(36, m.width-2)).
 		Render(lipgloss.JoinVertical(lipgloss.Left, line1, line2, line3, line4))
@@ -822,6 +847,9 @@ func (m runtimeConsoleModel) renderTabs() string {
 				Foreground(lipgloss.Color("#f8fafc")).
 				Background(lipgloss.Color("#1e293b")).
 				BorderForeground(lipgloss.Color("#38bdf8"))
+			if m.focus == consoleFocusHeader {
+				style = style.Background(lipgloss.Color("#0f172a"))
+			}
 		}
 		parts = append(parts, style.Render(tabLabel(tab)))
 	}
@@ -861,8 +889,11 @@ func (m runtimeConsoleModel) renderCommandSuggestions() string {
 	if m.focus == consoleFocusInput || strings.TrimSpace(m.inputValue) != "" {
 		return truncateText("Tab 补全  ·  Enter 执行  ·  Esc 返回导航  ·  建议: "+strings.Join(matches, "   "), max(30, m.width-10))
 	}
+	if m.focus == consoleFocusHeader {
+		return truncateText("顶部区域已聚焦  ·  ←/→ 切换分区  ·  ↓ 进入功能列表  ·  / 开始输入命令", max(30, m.width-10))
+	}
 
-	return truncateText("按 / 开始输入命令  ·  ←/→ 切换分区  ·  ↑/↓ 选择功能  ·  Ctrl+P 切换节点", max(30, m.width-10))
+	return truncateText("按 / 开始输入命令  ·  ↑/↓ 选择功能  ·  Esc 回顶部  ·  Ctrl+P 切换节点", max(30, m.width-10))
 }
 
 func (m runtimeConsoleModel) renderHeaderSummary() string {
@@ -1016,7 +1047,7 @@ func (m *runtimeConsoleModel) executeSelectedAction() (tea.Model, tea.Cmd) {
 	case "overview_config":
 		m.setDetail("配置中心", renderConfigCenterLines(loadConfigOrDefault()))
 	case "overview_guide":
-		m.showCapturedDetail("功能导航", func() { printStartGuide(loadConfigOrDefault(), m.logFile) })
+		m.setDetail("功能导航", renderGuideDetailLines(loadConfigOrDefault(), m.logFile))
 	case "routing_groups":
 		return m.openGroupPicker()
 	case "routing_egress":
@@ -1507,6 +1538,45 @@ func renderConfigCenterLines(cfg *config.Config) []string {
 		renderSectionTitle("说明"),
 		noteLine("当前 TUI 先提供查看和快捷入口，完整编辑仍可通过 /config open 进入。"),
 	}
+	return lines
+}
+
+func renderGuideDetailLines(cfg *config.Config, logFile string) []string {
+	lines := []string{
+		renderSectionTitle("当前主线"),
+	}
+	if cfg.Runtime.Tun.Enabled {
+		lines = append(lines, "  局域网共享已就绪：手机、Switch、PS5、Apple TV 改网关和 DNS 就能接入")
+	} else {
+		lines = append(lines, "  先开启 TUN：运行 sudo gateway tun on，再执行 sudo gateway restart")
+	}
+
+	switch cfg.Extension.Mode {
+	case "chains":
+		mode := "rule"
+		if cfg.Extension.ResidentialChain != nil && cfg.Extension.ResidentialChain.Mode != "" {
+			mode = cfg.Extension.ResidentialChain.Mode
+		}
+		lines = append(lines, "  当前扩展模式: chains / "+mode+"，适合 Claude / ChatGPT / Codex / Cursor")
+	case "script":
+		lines = append(lines, "  当前扩展模式: script，可继续扩展自定义分流逻辑")
+	default:
+		lines = append(lines, "  当前未启用扩展模式，可运行 /chains setup 体验内置链式代理向导")
+	}
+
+	lines = append(lines,
+		"",
+		renderSectionTitle("下一步最常用"),
+		"  1. 用 /nodes 或 Ctrl+P 切换节点，先把出口调到合适地区",
+		"  2. 用 /summary 查看当前配置是否按预期生效",
+		"  3. 用 /config open 进入完整配置中心，调整代理来源 / 规则 / 扩展",
+		"",
+		renderSectionTitle("常用入口"),
+		"  /status       查看完整运行状态和出口网络",
+		"  /device       查看设备接入说明",
+		"  /logs         查看最近日志",
+		"  tail -f "+logFile,
+	)
 	return lines
 }
 

@@ -22,6 +22,7 @@
 支持:
 
 - slash 命令: `/status` `/summary` `/config` `/config open` `/chains` `/nodes` `/logs` `/help`
+- 顶部 tab: `Esc` 回顶部，`←/→` 切分区，`↓ / Enter` 回到功能列表
 - 节点选择器: `Ctrl+P`
 - 确认交互: `/stop` `/restart` 后输入 `y / n`
 - 纯命令模式: `sudo gateway start --simple` 或 `sudo gateway console --simple`

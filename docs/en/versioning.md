@@ -70,6 +70,11 @@ Focus: runtime TUI, proxy group switching, unified config areas, fuller release 
 Positioning: console experience fixes.  
 Focus: fix TUI sluggishness, clean up status and config-summary rendering, add a `console` re-entry flow, and tighten the handoff between plain-command mode and TUI mode.
 
+### v2.2.2
+
+Positioning: TUI focus and navigation polish.  
+Focus: fix the `guide` page layout, add proper header-focus handoff, and make the top tabs and left action list work together more cleanly.
+
 ## Rules for Future Versions
 
 ### Patch

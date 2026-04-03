@@ -73,6 +73,7 @@ By default, `gateway start` opens the runtime workspace:
 - tabs, arrow-key navigation, and Enter-to-run actions
 - a command bar at the bottom for direct commands
 - `Ctrl+P` for node-group and node switching
+- `Esc` back to the top tabs, `←/→` to switch sections, and `↓` back into the action list
 
 If you prefer a more compatible low-overhead mode, use:
 
@@ -163,6 +164,15 @@ By default, startup enters the runtime workspace and shows:
 - runtime mode
 - egress summary
 - the runtime TUI console
+
+Common controls:
+
+- `Esc` back to the top tabs
+- `←/→` switch sections
+- `↑/↓` choose actions
+- `Enter` open the current action
+- `/` enter command input
+- `Ctrl+P` switch nodes
 
 The most important thing here is your LAN IP.
 
