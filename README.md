@@ -72,12 +72,17 @@ graph TD
 
 纯命令模式里可以直接做常用操作，例如：
 
-- `proxy source url`
-- `tun on`
-- `bypass off`
-- `rule ads off`
-- `extension chains`
-- `chain mode global`
+- `nodes`
+- `subscription`
+- `extension`
+- `chain`
+- `help`
+
+补充说明：
+
+- 默认 `help` 只保留日常高频操作，输入 `help all` 再看完整命令清单
+- `nodes` 会打开节点工作台，展示每个节点延时，支持输入 `T` 主动重测一遍并按低延时排序
+- `subscription / extension / chain` 打开工作台后，可以直接输入面板里的 `1 / 2 / A / S / R ...`，不用手敲整条命令
 
 如果你想进入完整的运行中 TUI 工作台，可以使用：
 
@@ -201,12 +206,15 @@ gateway start
 
 简单模式里现在可以直接处理这些常用配置：
 
+- 节点切换，自动展示延时并支持整组重测排序
 - 代理来源和订阅信息
 - TUN 和本机绕过代理
 - 国内直连 / 广告拦截等推荐规则
 - chains / script / off
 - chains 的 `rule / global`
 - 住宅代理和机场出口组
+
+默认 `help` 会优先展示这些高频操作；如果你需要低频命令，再输入 `help all` 即可。
 
 这一步里最重要的是记住你的局域网 IP。
 

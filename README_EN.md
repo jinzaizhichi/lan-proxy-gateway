@@ -72,12 +72,17 @@ By default, `gateway start` opens the plain command console. It is the more comp
 
 Common plain-command actions include:
 
-- `proxy source url`
-- `tun on`
-- `bypass off`
-- `rule ads off`
-- `extension chains`
-- `chain mode global`
+- `nodes`
+- `subscription`
+- `extension`
+- `chain`
+- `help`
+
+Extra notes:
+
+- default `help` now stays focused on common actions; use `help all` for the full command list
+- `nodes` opens a node workbench that shows per-node latency, lets you press `T` to retest, and reorders the list by lower latency first
+- after opening `subscription / extension / chain`, you can type the panel shortcuts like `1 / 2 / A / S / R ...` instead of entering the full command every time
 
 If you want the full runtime TUI workbench, use:
 
@@ -196,12 +201,15 @@ By default, startup enters the plain command console and shows:
 
 The default workspace now handles these common tasks directly:
 
+- node switching with latency display and full-group retest sorting
 - proxy source and subscription info
 - TUN and local bypass
 - recommended rule switches such as China direct and ad blocking
 - `chains / script / off`
 - `rule / global` for chains mode
 - residential proxy and airport group settings
+
+Default `help` stays centered on those high-frequency actions; use `help all` when you need the longer command list.
 
 The most important thing here is your LAN IP.
 

@@ -100,6 +100,26 @@ Focus: bring proxy source, TUN, local bypass, rule toggles, extension mode, and 
 Positioning: Windows compatibility hardening and verification fixes.  
 Focus: build on the original terminal/localization work by tightening administrator detection, self-update, default-interface detection, auto-start behavior, log hints, and Windows-style path expansion.
 
+### v2.2.8
+
+Positioning: TUI Dashboard redesign.  
+Focus: reshape the runtime TUI around a Dashboard-style home tab, three clear sections, and multi-subscription workbenches.
+
+### v2.2.9
+
+Positioning: default back to the plain command console.  
+Focus: make `start / console / restart` enter simple mode by default, keep `--simple`, and add an explicit `--tui` entry with matching docs.
+
+### v2.2.10
+
+Positioning: faster install-download fallback and slow-link recovery.  
+Focus: fix `install.sh` hanging on slow GitHub release downloads by probing candidate sources, switching on low speed, and documenting the new install flow.
+
+### v2.2.11
+
+Positioning: simple-mode node workbench and help cleanup.  
+Focus: center simple-mode help on daily actions, make workbench shortcuts usable, and let `nodes` show per-node latency with retest-and-sort behavior.
+
 ## Rules for Future Versions
 
 ### Patch

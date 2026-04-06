@@ -210,13 +210,17 @@ func parseProviderHints(provider *mihomo.ProxyProvider) (remaining, expiry, webs
 	}
 	for _, proxy := range provider.Proxies {
 		for _, item := range proxy.All {
-			switch {
-			case strings.HasPrefix(item, "剩余流量："):
-				remaining = strings.TrimPrefix(item, "剩余流量：")
-			case strings.HasPrefix(item, "套餐到期："):
-				expiry = strings.TrimPrefix(item, "套餐到期：")
-			case strings.HasPrefix(item, "最新网址："):
-				website = strings.TrimPrefix(item, "最新网址：")
+			kind, value, ok := parseSubscriptionHintItem(item)
+			if !ok {
+				continue
+			}
+			switch kind {
+			case "remaining":
+				remaining = value
+			case "expiry":
+				expiry = value
+			case "website":
+				website = value
 			}
 		}
 	}

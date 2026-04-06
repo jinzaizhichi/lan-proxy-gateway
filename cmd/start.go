@@ -215,6 +215,7 @@ func printCompactStartSummary(cfg *config.Config, dDir, ip, iface string) {
 
 func runSimpleRuntimeConsole(logFile, ip, iface, dDir string) consoleAction {
 	reader := bufio.NewReader(os.Stdin)
+	workspace := simpleWorkspaceNone
 	printCompactStartSummary(loadConfigOrDefault(), dDir, ip, iface)
 	fmt.Println("  已进入纯命令模式。输入 help 查看命令，输入 exit 退出。")
 	fmt.Println()
@@ -228,7 +229,13 @@ func runSimpleRuntimeConsole(logFile, ip, iface, dDir string) consoleAction {
 		choice := strings.ToLower(rawChoice)
 		fmt.Println()
 
-		if action, handled := handleSimpleConfigCommand(rawChoice); handled {
+		if rawChoice == "" {
+			continue
+		}
+		if handleSimpleHelpCommand(rawChoice) {
+			continue
+		}
+		if action, handled := handleSimpleConfigCommand(reader, &workspace, rawChoice); handled {
 			if action != consoleActionNone {
 				return action
 			}
@@ -236,33 +243,6 @@ func runSimpleRuntimeConsole(logFile, ip, iface, dDir string) consoleAction {
 		}
 
 		switch choice {
-		case "", "help", "?":
-			fmt.Println("  可用命令:")
-			fmt.Println("  status        查看运行状态")
-			fmt.Println("  summary       查看配置摘要")
-			fmt.Println("  config        打开配置中心")
-			fmt.Println("  subscription  打开订阅管理工作台")
-			fmt.Println("  subscription add url|file <名称> <链接或路径>")
-			fmt.Println("  subscription use <名称> 切换当前订阅")
-			fmt.Println("  proxy         打开代理来源工作台")
-			fmt.Println("  proxy source  切换 url / file")
-			fmt.Println("  tun on|off    切换 TUN")
-			fmt.Println("  bypass on|off 切换本机绕过代理")
-			fmt.Println("  rule ...      切换推荐规则开关")
-			fmt.Println("  chains        查看链式代理 / 扩展状态")
-			fmt.Println("  extension     打开扩展模式工作台")
-			fmt.Println("  chain         打开住宅代理工作台")
-			fmt.Println("  chains setup  打开链式代理向导")
-			fmt.Println("  nodes         打开节点选择器（切换节点；TUI 中同页支持测速）")
-			fmt.Println("  device        查看设备接入说明")
-			fmt.Println("  logs          查看最近日志")
-			fmt.Println("  guide         查看功能导航")
-			fmt.Println("  update        查看升级提示")
-			fmt.Println("  tui           切换进入 TUI 工作台")
-			fmt.Println("  restart       重启网关")
-			fmt.Println("  stop          停止网关")
-			fmt.Println("  exit          退出纯命令模式")
-			fmt.Println()
 		case "status":
 			runStatus(nil, nil)
 		case "summary":
@@ -367,39 +347,7 @@ func runSimpleGroupChooser(reader *bufio.Reader, cfg *config.Config) {
 	}
 
 	group := groups[groupIndex]
-	fmt.Println()
-	color.New(color.Bold).Printf("  节点列表 · %s\n", group.Name)
-	fmt.Println()
-	for i, node := range group.All {
-		current := ""
-		if node == group.Now {
-			current = " (current)"
-		}
-		fmt.Printf("  %d) %s%s\n", i+1, node, current)
-	}
-	fmt.Println()
-	fmt.Print("选择节点 [1-", len(group.All), "]，回车取消: ")
-	rawNode, _ := reader.ReadString('\n')
-	rawNode = strings.TrimSpace(rawNode)
-	if rawNode == "" {
-		fmt.Println()
-		return
-	}
-
-	nodeIndex := parseIndex(rawNode, len(group.All))
-	if nodeIndex < 0 {
-		ui.Warn("无效的节点编号")
-		fmt.Println()
-		return
-	}
-
-	target := group.All[nodeIndex]
-	if err := client.SelectProxy(group.Name, target); err != nil {
-		ui.Error("切换失败: %v", err)
-	} else {
-		ui.Success("已切换节点: %s -> %s", group.Name, target)
-	}
-	fmt.Println()
+	runSimpleNodeChooser(reader, client, group)
 }
 
 func parseIndex(value string, length int) int {

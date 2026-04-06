@@ -24,6 +24,9 @@
 
 - 纯命令模式: `sudo gateway start` 或 `sudo gateway console`，支持代理来源、TUN、本机绕过、规则开关、扩展模式和 chains 配置
 - 显式简单模式: 默认就是 simple，因此 `sudo gateway start --simple` 和 `sudo gateway console --simple` 仍然可用
+- 默认帮助: `help` 只展示高频操作；`help all` 查看完整命令清单
+- simple 节点工作台: 输入 `nodes`，会展示每个节点延时，支持 `T` 主动重测一遍并按低延时排序
+- simple 配置工作台: 打开 `subscription / extension / chain` 后，可直接输入面板里的 `1 / 2 / A / S / R ...`
 - 运行中 TUI: `sudo gateway start --tui` 或 `sudo gateway console --tui`
 - slash 命令: `/status` `/summary` `/config` `/config open` `/proxy` `/tun` `/bypass` `/rules` `/rule` `/extension` `/chain` `/chains` `/nodes` `/speed` `/logs` `/help`
 - 顶部 tab: `Esc` 回顶部，`←/→` 切分区，`↓ / Enter` 回到功能列表
@@ -85,7 +88,13 @@
 有两种方式:
 
 1. Web 面板: `http://你的局域网IP:9090/ui`
-2. CLI 运行中控制台:
+2. 纯命令控制台:
+   - 启动网关
+   - 输入 `nodes`
+   - 选择节点分组
+   - 查看每个节点延时；如需主动刷新，输入 `T`
+   - 按延时排序后选择节点并回车切换
+3. CLI 运行中 TUI:
    - 启动网关
    - 按 `Ctrl+P`
    - 选择节点分组

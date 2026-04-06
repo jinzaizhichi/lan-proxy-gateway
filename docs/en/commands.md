@@ -26,6 +26,9 @@ Supported actions:
 
 - plain command mode: `sudo gateway start` or `sudo gateway console`, with the same core config actions
 - explicit simple mode: because simple mode is now the default, `sudo gateway start --simple` and `sudo gateway console --simple` are still accepted
+- default help: `help` focuses on common actions, while `help all` shows the full command list
+- simple node workbench: type `nodes` to see per-node latency, press `T` to retest, and sort the list by lower latency first
+- simple config workbenches: after opening `subscription / extension / chain`, you can use panel shortcuts like `1 / 2 / A / S / R ...`
 - runtime TUI: `sudo gateway start --tui` or `sudo gateway console --tui`
 - slash commands: `/status` `/summary` `/config` `/config open` `/proxy` `/tun` `/bypass` `/rules` `/rule` `/extension` `/chain` `/chains` `/nodes` `/speed` `/logs` `/help`
 - top tabs: `Esc` back to the header, `←/→` switch sections, `↓ / Enter` return to the action list
@@ -87,7 +90,13 @@ It is now recommended to manage these through `gateway config`:
 You can switch groups and nodes in two ways:
 
 1. Web panel: `http://<your-lan-ip>:9090/ui`
-2. Runtime TUI:
+2. Plain command console:
+   - start the gateway
+   - type `nodes`
+   - choose a node group
+   - review the per-node latency list; type `T` if you want to retest the whole group
+   - pick a node from the latency-sorted list and press Enter
+3. Runtime TUI:
    - start the gateway
    - press `Ctrl+P`
    - choose a node group
