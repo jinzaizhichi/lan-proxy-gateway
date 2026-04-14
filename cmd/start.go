@@ -75,10 +75,11 @@ func runStartWithMode(simpleMode bool, cmd *cobra.Command, args []string) {
 	iface, _ := p.DetectDefaultInterface()
 	ip, _ := p.DetectInterfaceIP(iface)
 
-	// If file mode, extract proxies first
-	if cfg.Proxy.Source == "file" {
+	// 代理来源前置处理
+	switch cfg.Proxy.Source {
+	case "file":
 		if cfg.Proxy.ConfigFile == "" {
-			ui.Error("配置文件路径未设置，请检查 gateway.yaml")
+			ui.Error("配置文件路径未设置，请运行 gateway config 配置")
 			os.Exit(1)
 		}
 		providerFile := filepath.Join(dDir, "proxy_provider", cfg.Proxy.SubscriptionName+".yaml")
@@ -88,6 +89,18 @@ func runStartWithMode(simpleMode bool, cmd *cobra.Command, args []string) {
 			os.Exit(1)
 		}
 		ui.Success("已从配置文件中提取 %d 个代理节点", count)
+	case "proxy":
+		dp := cfg.Proxy.DirectProxy
+		if dp == nil || strings.TrimSpace(dp.Server) == "" || dp.Port <= 0 {
+			ui.Error("直接代理服务器未完整配置，请运行 gateway config 填写服务器地址和端口")
+			os.Exit(1)
+		}
+		ui.Success("直接代理模式: %s %s:%d", dp.Type, dp.Server, dp.Port)
+	case "url":
+		if strings.TrimSpace(cfg.Proxy.SubscriptionURL) == "" {
+			ui.Error("订阅链接未设置，请运行 gateway config 配置")
+			os.Exit(1)
+		}
 	}
 
 	configPath := filepath.Join(dDir, "config.yaml")
@@ -152,9 +165,11 @@ func runStartWithMode(simpleMode bool, cmd *cobra.Command, args []string) {
 			runStartWithMode(simpleMode, cmd, args)
 		})
 		return
-	} else {
-		printCompactStartSummary(cfg, dDir, ip, iface)
 	}
+
+	// 非交互模式（systemd / 脚本调用）：只打印基础信息后退出，不做任何网络请求
+	// 网络探测（egress/update）放在交互模式里做，避免 systemd 启动超时
+	printDaemonStartSummary(cfg, ip, iface)
 }
 
 func runInteractiveConsoleLoop(simple bool, logFile, ip, iface, dDir string, restartFn func()) {
@@ -186,6 +201,22 @@ func runInteractiveConsoleLoop(simple bool, logFile, ip, iface, dDir string, res
 			return
 		}
 	}
+}
+
+// printDaemonStartSummary 用于非交互（systemd/脚本）启动时的输出
+// 不做任何网络请求，保证快速退出，避免 systemd TimeoutStartSec 超时
+func printDaemonStartSummary(cfg *config.Config, ip, iface string) {
+	ui.Separator()
+	color.New(color.FgGreen, color.Bold).Println("  Gateway Started")
+	ui.Separator()
+	fmt.Println()
+	fmt.Printf("  共享入口: 网关 / DNS -> %s\n", color.CyanString(ip))
+	fmt.Printf("  运行模式: %s\n", compactModeSummary(cfg))
+	fmt.Printf("  API 面板: http://%s:%d/ui\n", ip, cfg.Runtime.Ports.API)
+	if iface != "" {
+		fmt.Printf("  网络接口: %s\n", iface)
+	}
+	fmt.Println()
 }
 
 func printCompactStartSummary(cfg *config.Config, dDir, ip, iface string) {
