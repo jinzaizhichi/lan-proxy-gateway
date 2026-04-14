@@ -29,6 +29,8 @@ func AIProxyRules(target string) []string {
 		"DOMAIN-SUFFIX,cursor.sh," + target,
 		"DOMAIN-SUFFIX,cursor-cdn.com," + target,
 		"DOMAIN-SUFFIX,cursorapi.com," + target,
+		"DOMAIN,downloads.cursor.com," + target,
+		"DOMAIN,anysphere-binaries.s3.us-east-1.amazonaws.com," + target,
 	}
 }
 

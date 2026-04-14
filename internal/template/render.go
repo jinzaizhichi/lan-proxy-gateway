@@ -12,9 +12,19 @@ import (
 	"github.com/tght/lan-proxy-gateway/internal/script"
 )
 
+type RenderOptions struct {
+	ProxyProviderAvailable bool
+}
+
 // RenderTemplate replaces {{VARIABLE}} placeholders with actual values
 // and writes the result to outputPath.
 func RenderTemplate(cfg *config.Config, iface, ip, outputPath string) error {
+	return RenderTemplateWithOptions(cfg, iface, ip, outputPath, RenderOptions{
+		ProxyProviderAvailable: shouldEnableProxyProvider(cfg),
+	})
+}
+
+func RenderTemplateWithOptions(cfg *config.Config, iface, ip, outputPath string, opts RenderOptions) error {
 	result := embed.TemplateContent
 
 	tunConfig := "tun:\n  enable: false"
@@ -34,7 +44,7 @@ func RenderTemplate(cfg *config.Config, iface, ip, outputPath string) error {
 		"{{LAN_INTERFACE}}":   iface,
 		"{{LAN_IP}}":          ip,
 		"{{TUN_CONFIG}}":      tunConfig,
-		"{{PROXY_BLOCK}}":     renderProxyBlock(cfg),
+		"{{PROXY_BLOCK}}":     renderProxyBlock(cfg, opts.ProxyProviderAvailable),
 		"{{RULES_BLOCK}}":     rules.Render(cfg),
 	}
 
@@ -49,7 +59,6 @@ func RenderTemplate(cfg *config.Config, iface, ip, outputPath string) error {
 		if cfg.Extension.ResidentialChain == nil {
 			return fmt.Errorf("extension.mode 为 chains 但未配置 extension.residential_chain")
 		}
-		// chains 模式不支持 proxy 直接代理来源
 		if cfg.Proxy.Source == "proxy" {
 			return fmt.Errorf("chains 链式代理模式需要订阅链接或本地配置文件作为出口节点来源，不支持直接代理模式")
 		}
@@ -72,43 +81,72 @@ func RenderTemplate(cfg *config.Config, iface, ip, outputPath string) error {
 	return os.WriteFile(outputPath, output, 0644)
 }
 
-// renderProxyBlock 根据代理来源类型生成对应的 proxy-providers/proxies + proxy-groups 配置块
-func renderProxyBlock(cfg *config.Config) string {
-	switch cfg.Proxy.Source {
+func shouldEnableProxyProvider(cfg *config.Config) bool {
+	if cfg == nil {
+		return false
+	}
+
+	source := strings.ToLower(strings.TrimSpace(cfg.Proxy.Source))
+	subscriptionURL := strings.TrimSpace(cfg.Proxy.SubscriptionURL)
+	configFile := strings.TrimSpace(cfg.Proxy.ConfigFile)
+
+	switch source {
+	case "file":
+		return configFile != ""
+	case "url":
+		return subscriptionURL != ""
+	case "proxy":
+		return false
+	default:
+		return subscriptionURL != "" || configFile != ""
+	}
+}
+
+// renderProxyBlock 根据代理来源类型生成对应的代理块。
+func renderProxyBlock(cfg *config.Config, proxyProviderAvailable bool) string {
+	switch strings.ToLower(strings.TrimSpace(cfg.Proxy.Source)) {
 	case "proxy":
 		return renderDirectProxyBlock(cfg.Proxy.DirectProxy)
 	case "file":
+		if !proxyProviderAvailable {
+			return renderDegradedProxyBlock()
+		}
 		return renderSubscriptionProxyBlock(cfg.Proxy.SubscriptionName, cfg.Proxy.SubscriptionURL, true)
+	case "url":
+		if !proxyProviderAvailable {
+			return renderDegradedProxyBlock()
+		}
+		return renderSubscriptionProxyBlock(cfg.Proxy.SubscriptionName, cfg.Proxy.SubscriptionURL, false)
 	default:
+		if !proxyProviderAvailable {
+			return renderDegradedProxyBlock()
+		}
 		return renderSubscriptionProxyBlock(cfg.Proxy.SubscriptionName, cfg.Proxy.SubscriptionURL, false)
 	}
 }
 
-// renderSubscriptionProxyBlock 生成订阅/文件模式的代理配置块
 func renderSubscriptionProxyBlock(name, url string, fileMode bool) string {
-	var sb strings.Builder
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "subscription"
+	}
 
+	var sb strings.Builder
+	sb.WriteString("proxy-providers:\n")
+	sb.WriteString("  " + name + ":\n")
 	if fileMode {
-		sb.WriteString("proxy-providers:\n")
-		sb.WriteString("  " + name + ":\n")
 		sb.WriteString("    type: file\n")
 		sb.WriteString("    path: ./proxy_provider/" + name + ".yaml\n")
-		sb.WriteString("    health-check:\n")
-		sb.WriteString("      enable: true\n")
-		sb.WriteString("      interval: 120\n")
-		sb.WriteString("      url: http://www.gstatic.com/generate_204\n")
 	} else {
-		sb.WriteString("proxy-providers:\n")
-		sb.WriteString("  " + name + ":\n")
 		sb.WriteString("    type: http\n")
 		sb.WriteString("    url: \"" + url + "\"\n")
 		sb.WriteString("    interval: 1800\n")
 		sb.WriteString("    path: ./proxy_provider/" + name + ".yaml\n")
-		sb.WriteString("    health-check:\n")
-		sb.WriteString("      enable: true\n")
-		sb.WriteString("      interval: 120\n")
-		sb.WriteString("      url: http://www.gstatic.com/generate_204\n")
 	}
+	sb.WriteString("    health-check:\n")
+	sb.WriteString("      enable: true\n")
+	sb.WriteString("      interval: 120\n")
+	sb.WriteString("      url: http://www.gstatic.com/generate_204\n")
 
 	sb.WriteString("\nproxy-groups:\n")
 	sb.WriteString("  - name: Proxy\n")
@@ -136,10 +174,29 @@ func renderSubscriptionProxyBlock(name, url string, fileMode bool) string {
 	return sb.String()
 }
 
+func renderDegradedProxyBlock() string {
+	return `proxy-groups:
+  - name: Proxy
+    type: select
+    proxies:
+      - Auto
+      - Fallback
+      - DIRECT
+
+  - name: Auto
+    type: select
+    proxies:
+      - DIRECT
+
+  - name: Fallback
+    type: select
+    proxies:
+      - DIRECT`
+}
+
 // renderDirectProxyBlock 生成直接代理服务器模式的代理配置块
 func renderDirectProxyBlock(dp *config.DirectProxyConfig) string {
 	if dp == nil || strings.TrimSpace(dp.Server) == "" || dp.Port <= 0 {
-		// 配置不完整时生成一个占位配置，避免 mihomo 启动失败
 		return "proxies: []\n\nproxy-groups:\n  - name: Proxy\n    type: select\n    proxies:\n      - DIRECT\n\n  - name: Auto\n    type: select\n    proxies:\n      - DIRECT\n\n  - name: Fallback\n    type: select\n    proxies:\n      - DIRECT\n"
 	}
 

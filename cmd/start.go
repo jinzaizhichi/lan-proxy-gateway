@@ -30,21 +30,20 @@ var startTUI bool
 
 func init() {
 	rootCmd.AddCommand(startCmd)
-	startCmd.Flags().BoolVar(&startSimple, "simple", false, "使用纯命令模式：默认模式，兼容性更好的命令交互")
-	startCmd.Flags().BoolVar(&startTUI, "tui", false, "使用运行中 TUI 工作台")
+	startCmd.Flags().BoolVar(&startSimple, "simple", false, "兼容旧参数；当前默认就是菜单式 CLI 控制台")
+	startCmd.Flags().BoolVar(&startTUI, "tui", false, "已移除：旧版 TUI 工作台")
+	_ = startCmd.Flags().MarkHidden("simple")
+	_ = startCmd.Flags().MarkHidden("tui")
 }
 
 func runStart(cmd *cobra.Command, args []string) {
-	simpleMode, err := resolveConsoleSimpleMode(cmd, true, startSimple, startTUI)
-	if err != nil {
-		ui.Error("%s", err)
+	if rejectRemovedTUIFlag(cmd) {
 		os.Exit(1)
 	}
-
-	runStartWithMode(simpleMode, cmd, args)
+	runStartWithMode(cmd, args)
 }
 
-func runStartWithMode(simpleMode bool, cmd *cobra.Command, args []string) {
+func runStartWithMode(cmd *cobra.Command, args []string) {
 	checkRoot()
 
 	ui.ShowLogo()
@@ -62,6 +61,28 @@ func runStartWithMode(simpleMode bool, cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 	ui.Success("mihomo: %s", binary)
+	subscriptionStatus := evaluateSubscriptionStartupStatus(cfg)
+	proxyProviderAvailable := subscriptionStatus.Ready
+	if subscriptionStatus.Ready {
+		switch subscriptionStatus.Source {
+		case "url":
+			ui.Success("订阅链接预检查通过，识别到 %d 个节点", subscriptionStatus.Count)
+		case "file":
+			ui.Success("订阅文件预检查通过，识别到 %d 个节点", subscriptionStatus.Count)
+		default:
+			ui.Success("代理来源预检查通过")
+		}
+	} else {
+		switch subscriptionStatus.Source {
+		case "url":
+			ui.Warn("订阅链接预检查失败: %s", subscriptionStatus.Err)
+		case "file":
+			ui.Warn("订阅文件预检查失败: %s", subscriptionStatus.Err)
+		default:
+			ui.Warn("代理来源预检查失败: %s", subscriptionStatus.Err)
+		}
+		ui.Warn("已切换为 LAN-only / DIRECT 降级模式，网关仍会继续启动")
+	}
 
 	// Stop old process if running
 	if running, _, _ := p.IsRunning(); running {
@@ -79,32 +100,38 @@ func runStartWithMode(simpleMode bool, cmd *cobra.Command, args []string) {
 	switch cfg.Proxy.Source {
 	case "file":
 		if cfg.Proxy.ConfigFile == "" {
-			ui.Error("配置文件路径未设置，请运行 gateway config 配置")
-			os.Exit(1)
+			ui.Warn("配置文件路径未设置，跳过节点提取，进入 DIRECT 降级模式")
+			proxyProviderAvailable = false
+		} else {
+			providerFile := filepath.Join(dDir, "proxy_provider", cfg.Proxy.SubscriptionName+".yaml")
+			count, err := proxy.ExtractProxies(cfg.Proxy.ConfigFile, providerFile)
+			if err != nil {
+				ui.Warn("提取代理节点失败: %s", err)
+				ui.Warn("已切换为 LAN-only / DIRECT 降级模式")
+				proxyProviderAvailable = false
+			} else {
+				ui.Success("已从配置文件中提取 %d 个代理节点", count)
+			}
 		}
-		providerFile := filepath.Join(dDir, "proxy_provider", cfg.Proxy.SubscriptionName+".yaml")
-		count, err := proxy.ExtractProxies(cfg.Proxy.ConfigFile, providerFile)
-		if err != nil {
-			ui.Error("提取代理节点失败: %s", err)
-			os.Exit(1)
-		}
-		ui.Success("已从配置文件中提取 %d 个代理节点", count)
 	case "proxy":
 		dp := cfg.Proxy.DirectProxy
 		if dp == nil || strings.TrimSpace(dp.Server) == "" || dp.Port <= 0 {
 			ui.Error("直接代理服务器未完整配置，请运行 gateway config 填写服务器地址和端口")
 			os.Exit(1)
 		}
+		proxyProviderAvailable = false
 		ui.Success("直接代理模式: %s %s:%d", dp.Type, dp.Server, dp.Port)
 	case "url":
 		if strings.TrimSpace(cfg.Proxy.SubscriptionURL) == "" {
-			ui.Error("订阅链接未设置，请运行 gateway config 配置")
-			os.Exit(1)
+			ui.Warn("订阅链接未设置，进入 DIRECT 降级模式")
+			proxyProviderAvailable = false
 		}
 	}
 
 	configPath := filepath.Join(dDir, "config.yaml")
-	if err := tmpl.RenderTemplate(cfg, iface, ip, configPath); err != nil {
+	if err := tmpl.RenderTemplateWithOptions(cfg, iface, ip, configPath, tmpl.RenderOptions{
+		ProxyProviderAvailable: proxyProviderAvailable,
+	}); err != nil {
 		ui.Error("配置文件生成失败: %s", err)
 		os.Exit(1)
 	}
@@ -161,8 +188,8 @@ func runStartWithMode(simpleMode bool, cmd *cobra.Command, args []string) {
 	}
 
 	if isInteractiveTerminal() {
-		runInteractiveConsoleLoop(simpleMode, logFile, ip, iface, dDir, func() {
-			runStartWithMode(simpleMode, cmd, args)
+		runInteractiveConsoleLoop(logFile, ip, func() {
+			runStartWithMode(cmd, args)
 		})
 		return
 	}
@@ -172,24 +199,10 @@ func runStartWithMode(simpleMode bool, cmd *cobra.Command, args []string) {
 	printDaemonStartSummary(cfg, ip, iface)
 }
 
-func runInteractiveConsoleLoop(simple bool, logFile, ip, iface, dDir string, restartFn func()) {
-	modeSimple := simple
-
+func runInteractiveConsoleLoop(logFile, ip string, restartFn func()) {
 	for {
-		var action consoleAction
-		if modeSimple {
-			action = runSimpleRuntimeConsole(logFile, ip, iface, dDir)
-		} else {
-			action = runRuntimeConsole(logFile, ip, iface, dDir)
-		}
-
+		action := runMenuRuntimeConsole(logFile, ip)
 		switch action {
-		case consoleActionOpenConfig:
-			runConfigMenu(nil, nil)
-		case consoleActionOpenChainsSetup:
-			runChainsSetup(nil, nil)
-		case consoleActionOpenTUI:
-			modeSimple = false
 		case consoleActionStop:
 			runStop(nil, nil)
 			return
@@ -244,105 +257,6 @@ func printCompactStartSummary(cfg *config.Config, dDir, ip, iface string) {
 	fmt.Println()
 }
 
-func runSimpleRuntimeConsole(logFile, ip, iface, dDir string) consoleAction {
-	reader := bufio.NewReader(os.Stdin)
-	workspace := simpleWorkspaceNone
-	printCompactStartSummary(loadConfigOrDefault(), dDir, ip, iface)
-	fmt.Println("  已进入纯命令模式。输入 help 查看命令，输入 exit 退出。")
-	fmt.Println()
-
-	for {
-		cfg := loadConfigOrDefault()
-		fmt.Print("gateway> ")
-
-		input, _ := reader.ReadString('\n')
-		rawChoice := strings.TrimSpace(input)
-		choice := strings.ToLower(rawChoice)
-		fmt.Println()
-
-		if rawChoice == "" {
-			continue
-		}
-		if handleSimpleHelpCommand(rawChoice) {
-			continue
-		}
-		if action, handled := handleSimpleConfigCommand(reader, &workspace, rawChoice); handled {
-			if action != consoleActionNone {
-				return action
-			}
-			continue
-		}
-
-		switch choice {
-		case "status":
-			runStatus(nil, nil)
-		case "summary":
-			printConfigSummary(loadConfigOrDefault())
-		case "config":
-			return consoleActionOpenConfig
-		case "chains":
-			if cfg.Extension.Mode == "chains" {
-				runChainsStatus(nil, nil)
-			} else {
-				printExtensionStatus(cfg)
-			}
-		case "chains setup":
-			return consoleActionOpenChainsSetup
-		case "nodes", "node", "groups":
-			runSimpleGroupChooser(reader, cfg)
-		case "device", "devices":
-			printDeviceSetupPanel(ip, cfg.Runtime.Ports.API)
-		case "logs", "log":
-			ui.Separator()
-			color.New(color.Bold).Println("  最近日志")
-			ui.Separator()
-			printLastLines(logFile, 30)
-			fmt.Println()
-			fmt.Printf("  实时查看: %s\n", followLogCommand(logFile))
-			fmt.Println()
-		case "guide":
-			printStartGuide(cfg, logFile)
-		case "update":
-			if notice := loadUpdateNotice(); notice != nil {
-				for _, line := range renderUpdateNoticeLines(notice) {
-					fmt.Printf("  %s\n", line)
-				}
-			} else {
-				fmt.Println("  当前已经是最新版本，或本次未检测到更新。")
-			}
-			fmt.Println()
-		case "tui", "console":
-			fmt.Println("  正在切换到 TUI 工作台...")
-			fmt.Println()
-			return consoleActionOpenTUI
-		case "restart":
-			fmt.Print("确认重启网关？[y/N]: ")
-			answer, _ := reader.ReadString('\n')
-			if strings.TrimSpace(strings.ToLower(answer)) == "y" {
-				return consoleActionRestart
-			}
-			fmt.Println("  已取消。")
-			fmt.Println()
-		case "stop":
-			fmt.Print("确认停止网关？[y/N]: ")
-			answer, _ := reader.ReadString('\n')
-			if strings.TrimSpace(strings.ToLower(answer)) == "y" {
-				return consoleActionStop
-			}
-			fmt.Println("  已取消。")
-			fmt.Println()
-		case "q", "quit", "exit":
-			fmt.Println("  已退出纯命令模式，网关保持运行。")
-			fmt.Printf("  重新进入: %s\n", elevatedCmd("console --simple"))
-			fmt.Println()
-			return consoleActionExit
-		default:
-			ui.Warn("未识别的命令，输入 help 查看可用命令")
-			fmt.Println()
-		}
-	}
-}
-
 func runSimpleGroupChooser(reader *bufio.Reader, cfg *config.Config) {
 	client := newConsoleClient(cfg)
 	groups, err := client.ListProxyGroups()
@@ -355,6 +269,7 @@ func runSimpleGroupChooser(reader *bufio.Reader, cfg *config.Config) {
 		return
 	}
 
+	clearInteractiveScreen()
 	ui.Separator()
 	color.New(color.Bold).Println("  节点分组")
 	ui.Separator()
@@ -378,7 +293,7 @@ func runSimpleGroupChooser(reader *bufio.Reader, cfg *config.Config) {
 	}
 
 	group := groups[groupIndex]
-	runSimpleNodeChooser(reader, client, group)
+	runSimpleNodeChooser(reader, client, group, cfg)
 }
 
 func parseIndex(value string, length int) int {

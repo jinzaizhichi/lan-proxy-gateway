@@ -46,6 +46,7 @@ dns:
 # 由 internal/template 包根据 proxy.source 动态生成：
 #   url/file  → proxy-providers 订阅/文件模式
 #   proxy     → proxies 直接代理服务器模式
+#   degraded  → DIRECT 降级模式
 # ============================================
 {{PROXY_BLOCK}}
 

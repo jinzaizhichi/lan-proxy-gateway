@@ -339,13 +339,15 @@ func runInstall(cmd *cobra.Command, args []string) {
 			path, _ := reader.ReadString('\n')
 			path = strings.TrimSpace(path)
 			path = expandUserPath(path)
-			if _, err := os.Stat(path); os.IsNotExist(err) {
-				ui.Error("文件不存在: %s", path)
+			validatedPath, count, err := validateSubscriptionFile(path)
+			if err != nil {
+				ui.Error("订阅文件校验失败: %s", err)
 				os.Exit(1)
 			}
 
 			cfg.Proxy.Source = "file"
-			cfg.Proxy.ConfigFile = path
+			cfg.Proxy.ConfigFile = validatedPath
+			ui.Success("订阅文件校验通过，识别到 %d 个节点", count)
 
 			fmt.Println()
 			fmt.Print("给代理源起个名字 [subscription]: ")
@@ -426,13 +428,15 @@ func runInstall(cmd *cobra.Command, args []string) {
 			fmt.Print("> ")
 			url, _ := reader.ReadString('\n')
 			url = strings.TrimSpace(url)
-			if url == "" {
-				ui.Error("订阅链接不能为空")
+			count, err := validateSubscriptionURL(url)
+			if err != nil {
+				ui.Error("订阅链接校验失败: %s", err)
 				os.Exit(1)
 			}
 
 			cfg.Proxy.Source = "url"
 			cfg.Proxy.SubscriptionURL = url
+			ui.Success("订阅链接校验通过，识别到 %d 个节点", count)
 
 			fmt.Println()
 			fmt.Print("给订阅起个名字 [subscription]: ")
@@ -498,15 +502,13 @@ func runInstall(cmd *cobra.Command, args []string) {
 		fmt.Println()
 		color.New(color.Bold).Println("  启动方式")
 		fmt.Println()
-		fmt.Printf("  默认模式:    %s\n", elevatedCmd("start"))
-		fmt.Printf("  TUI 工作台:  %s --tui\n", elevatedCmd("start"))
+		fmt.Printf("  菜单控制台:  %s\n", elevatedCmd("start"))
 		fmt.Println()
 		color.New(color.Bold).Println("  常用入口")
 		fmt.Println()
-		fmt.Printf("  重新进入默认模式: %s\n", elevatedCmd("console"))
-		fmt.Printf("  重新进入 TUI:     %s --tui\n", elevatedCmd("console"))
-		fmt.Println("  查看状态:         gateway status")
-		fmt.Printf("  停止网关:         %s\n", elevatedCmd("stop"))
+		fmt.Printf("  重新进入控制台: %s\n", elevatedCmd("console"))
+		fmt.Println("  查看状态:       gateway status")
+		fmt.Printf("  停止网关:       %s\n", elevatedCmd("stop"))
 		fmt.Println()
 		if runtime.GOOS == "windows" {
 			fmt.Printf("  %s\n", color.New(color.Faint).Sprint("注意: start / stop / restart 需要以管理员身份运行终端"))

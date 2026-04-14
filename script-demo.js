@@ -76,6 +76,8 @@ function main(config) {
     "DOMAIN-SUFFIX,cursor.sh,AI Only",
     "DOMAIN-SUFFIX,cursor-cdn.com,AI Only",
     "DOMAIN-SUFFIX,cursorapi.com,AI Only",
+    "DOMAIN,downloads.cursor.com,AI Only",
+    "DOMAIN,anysphere-binaries.s3.us-east-1.amazonaws.com,AI Only",
   ];
 
   if (!config["rule-providers"]) config["rule-providers"] = {};

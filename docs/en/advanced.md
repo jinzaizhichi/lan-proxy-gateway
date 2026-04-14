@@ -180,20 +180,19 @@ After setup, the CLI can try `sudo -n` automatically instead of requiring users 
 
 ---
 
-## Runtime TUI Console
+## Runtime Menu Console
 
-Run `gateway start --tui`, or use `gateway console --tui` after the gateway is already running, to enter the runtime console. The default `gateway start` now goes to the more compatible plain command mode first.
+Run `gateway start`, or use `gateway console` after the gateway is already running, to enter the runtime menu-driven CLI console.
 
 From there you can:
 
-- use `/status` for full status
-- use `/config` for the config center
-- use `/chains` for extension status
-- use `/logs` for logs
-- use `/update` for upgrade hints
-- use `Ctrl+P` to pick proxy groups and nodes
+- view full runtime status and the current config summary
+- switch proxy groups and nodes, with latency retest and sorting
+- manage subscriptions, proxy source, TUN, local bypass, rules, and extension mode
+- open the full config center
+- read logs, device setup notes, and upgrade hints
 
-This runtime console is one of the main interaction areas the project is continuing to refine.
+This menu console is now the default interaction path; the old `--tui` entry has been removed.
 
 ---
 
@@ -233,7 +232,7 @@ sudo gateway update
 
 - `gateway`
 - `gateway start`
-- the runtime TUI console
+- the runtime menu console
 
 When a new version is available, they can show an update hint. The check is cached internally so the CLI does not block on every run.
 

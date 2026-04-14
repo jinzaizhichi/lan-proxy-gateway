@@ -245,6 +245,9 @@ func updateSubscriptionURL(url string) (*config.Config, error) {
 		if url == "" {
 			return fmt.Errorf("订阅链接不能为空")
 		}
+		if _, err := validateSubscriptionURL(url); err != nil {
+			return fmt.Errorf("订阅链接校验失败: %w", err)
+		}
 		cfg.Proxy.SubscriptionURL = url
 		if cfg.Proxy.Source == "" {
 			cfg.Proxy.Source = "url"
@@ -256,7 +259,7 @@ func updateSubscriptionURL(url string) (*config.Config, error) {
 
 func updateProxyConfigFile(path string) (*config.Config, error) {
 	return updateConsoleConfig(func(cfg *config.Config) error {
-		validated, err := validateExistingFile(path)
+		validated, _, err := validateSubscriptionFile(path)
 		if err != nil {
 			return err
 		}
@@ -313,9 +316,12 @@ func createSubscriptionProfile(name, source, value string) (*config.Config, erro
 			if value == "" {
 				return fmt.Errorf("订阅链接不能为空")
 			}
+			if _, err := validateSubscriptionURL(value); err != nil {
+				return fmt.Errorf("订阅链接校验失败: %w", err)
+			}
 			profile.SubscriptionURL = value
 		case "file":
-			validated, err := validateExistingFile(value)
+			validated, _, err := validateSubscriptionFile(value)
 			if err != nil {
 				return err
 			}
@@ -522,9 +528,10 @@ func renderSubscriptionWorkspaceLines(cfg *config.Config, status string) []strin
 		"  1 新建 URL 订阅",
 		"  2 新建本地文件订阅",
 		"  3 切换当前订阅",
-		"  U 编辑当前订阅链接",
-		"  F 编辑当前本地配置路径",
-		"  N 重命名当前订阅",
+		"  4 编辑当前订阅链接",
+		"  5 编辑当前本地配置路径",
+		"  6 重命名当前订阅",
+		"  0 返回上一级",
 		"",
 		noteLine("订阅切换会写入 gateway.yaml，重启网关后生效。"),
 	)
@@ -591,9 +598,9 @@ func proxySourceSummary(cfg *config.Config) string {
 func renderRuntimeWorkspaceLines(cfg *config.Config, status string) []string {
 	lines := []string{
 		renderSectionTitle("当前运行模式"),
-		"  TUN: " + tuiOnOff(cfg.Runtime.Tun.Enabled),
-		"  本机绕过代理: " + tuiOnOff(cfg.Runtime.Tun.BypassLocal),
-		"  局域网共享: " + tuiState(cfg.Runtime.Tun.Enabled, "已开启（依赖 TUN）", "不可用"),
+		"  TUN: " + consoleOnOff(cfg.Runtime.Tun.Enabled),
+		"  本机绕过代理: " + consoleOnOff(cfg.Runtime.Tun.BypassLocal),
+		"  局域网共享: " + consoleState(cfg.Runtime.Tun.Enabled, "已开启（依赖 TUN）", "不可用"),
 		fmt.Sprintf("  端口: mixed %d | redir %d | api %d | dns %d", cfg.Runtime.Ports.Mixed, cfg.Runtime.Ports.Redir, cfg.Runtime.Ports.API, cfg.Runtime.Ports.DNS),
 	}
 	if status != "" {
@@ -604,6 +611,7 @@ func renderRuntimeWorkspaceLines(cfg *config.Config, status string) []string {
 		renderSectionTitle("工作台操作"),
 		"  1 切换 TUN 开关",
 		"  2 切换本机绕过代理",
+		"  0 返回上一级",
 		"",
 		noteLine(fmt.Sprintf("TUN 是局域网共享的核心开关；关闭后局域网设备无法再通过这台机器上网。改完通常需要 %s。", elevatedCmd("restart"))),
 	)
@@ -613,12 +621,12 @@ func renderRuntimeWorkspaceLines(cfg *config.Config, status string) []string {
 func renderRulesWorkspaceLines(cfg *config.Config, status string) []string {
 	lines := []string{
 		renderSectionTitle("当前规则开关"),
-		"  1 局域网直连: " + tuiOnOff(cfg.Rules.LanDirectEnabled()),
-		"  2 国内直连: " + tuiOnOff(cfg.Rules.ChinaDirectEnabled()),
-		"  3 Apple 规则: " + tuiOnOff(cfg.Rules.AppleRulesEnabled()),
-		"  4 Nintendo 代理: " + tuiOnOff(cfg.Rules.NintendoProxyEnabled()),
-		"  5 国外代理: " + tuiOnOff(cfg.Rules.GlobalProxyEnabled()),
-		"  6 广告拦截: " + tuiOnOff(cfg.Rules.AdsRejectEnabled()),
+		"  1 局域网直连: " + consoleOnOff(cfg.Rules.LanDirectEnabled()),
+		"  2 国内直连: " + consoleOnOff(cfg.Rules.ChinaDirectEnabled()),
+		"  3 Apple 规则: " + consoleOnOff(cfg.Rules.AppleRulesEnabled()),
+		"  4 Nintendo 代理: " + consoleOnOff(cfg.Rules.NintendoProxyEnabled()),
+		"  5 国外代理: " + consoleOnOff(cfg.Rules.GlobalProxyEnabled()),
+		"  6 广告拦截: " + consoleOnOff(cfg.Rules.AdsRejectEnabled()),
 	}
 	if status != "" {
 		lines = append(lines, "", status)
@@ -627,6 +635,7 @@ func renderRulesWorkspaceLines(cfg *config.Config, status string) []string {
 		"",
 		renderSectionTitle("工作台操作"),
 		"  按 1-6 直接切换对应规则开关",
+		"  0 返回上一级",
 		"",
 		noteLine("这组规则更偏向推荐默认值，适合先用再细调。"),
 	)
@@ -653,9 +662,10 @@ func renderExtensionWorkspaceLines(cfg *config.Config, status string) []string {
 		renderSectionTitle("工作台操作"),
 		"  1 切到 chains",
 		"  2 切到 script",
-		"  0 关闭扩展",
-		"  R 切换 chains 的 rule / global",
-		"  P 编辑 script_path",
+		"  3 关闭扩展",
+		"  4 切换 chains 的 rule / global",
+		"  5 编辑 script_path",
+		"  0 返回上一级",
 		"",
 		noteLine("chains 适合 AI 客户端稳定使用；script 适合已有自定义脚本。"),
 	)
@@ -679,12 +689,13 @@ func renderChainWorkspaceLines(cfg *config.Config, status string) []string {
 	lines = append(lines,
 		"",
 		renderSectionTitle("工作台操作"),
-		"  S 编辑住宅代理服务器",
-		"  O 编辑住宅代理端口",
-		"  T 切换代理协议 socks5 / http",
-		"  U 编辑用户名",
-		"  P 编辑密码",
-		"  A 编辑机场出口组",
+		"  1 编辑住宅代理服务器",
+		"  2 编辑住宅代理端口",
+		"  3 切换代理协议 socks5 / http",
+		"  4 编辑用户名",
+		"  5 编辑密码",
+		"  6 编辑机场出口组",
+		"  0 返回上一级",
 		"",
 		noteLine("如果要启用 chains，还需要保证机场组名称和住宅代理参数都可用。"),
 	)

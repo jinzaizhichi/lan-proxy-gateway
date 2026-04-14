@@ -7,47 +7,28 @@
 | `gateway install` | 初始化向导: 下载 mihomo、录入订阅、生成配置文件 | 否 |
 | `gateway config` | 交互式配置中心: 代理来源 / 局域网共享 / 规则 / 扩展 | 否 |
 | `gateway config show` | 查看当前配置摘要 | 否 |
-| `sudo gateway start` | 启动网关，并默认进入纯命令控制台 | 是 |
-| `sudo gateway start --tui` | 启动网关，并进入运行中 TUI 控制台 | 是 |
-| `sudo gateway console` | 不重启网关，重新进入纯命令控制台 | 是 |
-| `sudo gateway console --tui` | 不重启网关，重新进入运行中 TUI 控制台 | 是 |
+| `sudo gateway start` | 启动网关，并默认进入菜单式 CLI 控制台 | 是 |
+| `sudo gateway console` | 不重启网关，重新进入菜单式 CLI 控制台 | 是 |
 | `sudo gateway stop` | 停止网关 | 是 |
-| `sudo gateway restart` | 重启网关，并默认回到纯命令控制台 | 是 |
-| `sudo gateway restart --tui` | 重启网关，并进入运行中 TUI 控制台 | 是 |
+| `sudo gateway restart` | 重启网关，并默认回到菜单式 CLI 控制台 | 是 |
 | `gateway status` | 查看运行状态、入口节点、普通出口、住宅出口 | 否 |
 
 ## 运行中控制台
 
-`gateway start` 在交互终端中成功启动后，默认会进入纯命令控制台。这样兼容性更好，也更适合当前版本的日常使用。
+`gateway start` 在交互终端中成功启动后，会直接进入菜单式 CLI 控制台。启动后先看到首页菜单，再按编号进入各个工作台。
 
 支持:
 
-- 纯命令模式: `sudo gateway start` 或 `sudo gateway console`，支持代理来源、TUN、本机绕过、规则开关、扩展模式和 chains 配置
-- 显式简单模式: 默认就是 simple，因此 `sudo gateway start --simple` 和 `sudo gateway console --simple` 仍然可用
-- 默认帮助: `help` 只展示高频操作；`help all` 查看完整命令清单
-- simple 节点工作台: 输入 `nodes`，会展示每个节点延时，支持 `T` 主动重测一遍并按低延时排序
-- simple 配置工作台: 打开 `subscription / extension / chain` 后，可直接输入面板里的 `1 / 2 / A / S / R ...`
-- 运行中 TUI: `sudo gateway start --tui` 或 `sudo gateway console --tui`
-- slash 命令: `/status` `/summary` `/config` `/config open` `/proxy` `/tun` `/bypass` `/rules` `/rule` `/extension` `/chain` `/chains` `/nodes` `/speed` `/logs` `/help`
-- 顶部 tab: `Esc` 回顶部，`←/→` 切分区，`↓ / Enter` 回到功能列表
-- 右侧内容区: 会标明当前是 `信息页 / 可操作页 / 确认页`
-- 节点工作台: `Ctrl+P` 打开；进入后 `T` 测当前节点延迟
-- 配置工作台: 可以直接在 TUI 内切 `代理来源 / TUN / 本机绕过 / 规则开关 / chains 模式 / 住宅代理`
-- 刷新反馈: `R` 会刷新当前页面，并给一个很短的脉冲反馈
-- 确认交互: `/stop` `/restart` 后输入 `y / n`
+- 首页菜单: 运行状态、节点、订阅、网络、规则、扩展、配置中心、日志、升级提示
+- 节点工作台: 进入后会展示每个节点延时，支持 `T` 主动重测一遍并按低延时排序
+- 订阅 / 代理来源工作台: 新建、切换、重命名订阅，或调整 url / file 来源
+- 网络工作台: 切换 TUN、本机绕过代理
+- 规则工作台: 切换局域网直连、国内直连、Apple、Nintendo、国外代理、广告拦截
+- 扩展工作台: 管理 `chains / script / off`、chains 的 `rule / global`、住宅代理和机场出口组
+- 完整配置中心: 仍可通过菜单打开 `gateway config`
+- 旧版 `--tui` 入口已移除；如果仍传入会直接提示改用默认控制台
 
 这让它更像一个持续运行的 CLI 系统，而不是“一次性打印信息就退出”的命令。
-
-纯命令模式常用例子:
-
-- `proxy source url`
-- `proxy url https://example.com/sub`
-- `tun on`
-- `bypass off`
-- `rule ads off`
-- `extension chains`
-- `chain mode global`
-- `chain airport Auto`
 
 ## 配置与切换
 
@@ -88,17 +69,12 @@
 有两种方式:
 
 1. Web 面板: `http://你的局域网IP:9090/ui`
-2. 纯命令控制台:
+2. 菜单式 CLI 控制台:
    - 启动网关
-   - 输入 `nodes`
+   - 进入 `节点与策略组`
    - 选择节点分组
    - 查看每个节点延时；如需主动刷新，输入 `T`
    - 按延时排序后选择节点并回车切换
-3. CLI 运行中 TUI:
-   - 启动网关
-   - 按 `Ctrl+P`
-   - 选择节点分组
-   - 选择节点并回车切换
 
 这让它更接近一个 CLI 版的 Clash Verge Rev 工作台。
 

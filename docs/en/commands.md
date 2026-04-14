@@ -9,47 +9,28 @@
 | `gateway install` | Initial setup wizard: download `mihomo`, enter subscription info, generate config | No |
 | `gateway config` | Interactive config center: proxy source, LAN sharing, rules, extensions | No |
 | `gateway config show` | Show the current config summary | No |
-| `sudo gateway start` | Start the gateway and enter the default plain command console | Yes |
-| `sudo gateway start --tui` | Start the gateway and enter the runtime TUI | Yes |
-| `sudo gateway console` | Re-enter the plain command console without restarting the gateway | Yes |
-| `sudo gateway console --tui` | Re-enter the runtime TUI without restarting the gateway | Yes |
+| `sudo gateway start` | Start the gateway and enter the menu-driven CLI console | Yes |
+| `sudo gateway console` | Re-enter the menu-driven CLI console without restarting the gateway | Yes |
 | `sudo gateway stop` | Stop the gateway | Yes |
-| `sudo gateway restart` | Restart the gateway and return to the plain command console by default | Yes |
-| `sudo gateway restart --tui` | Restart the gateway and enter the runtime TUI | Yes |
+| `sudo gateway restart` | Restart the gateway and return to the menu-driven CLI console | Yes |
 | `gateway status` | Show runtime status, entry node, regular exit, and residential exit | No |
 
 ## Runtime Console
 
-After `gateway start` succeeds in an interactive terminal, it enters the plain command console by default. That keeps startup more compatible while the runtime TUI is still being polished.
+After `gateway start` succeeds in an interactive terminal, it enters the menu-driven CLI console. You land on the home menu first, then move into each workbench by number.
 
 Supported actions:
 
-- plain command mode: `sudo gateway start` or `sudo gateway console`, with the same core config actions
-- explicit simple mode: because simple mode is now the default, `sudo gateway start --simple` and `sudo gateway console --simple` are still accepted
-- default help: `help` focuses on common actions, while `help all` shows the full command list
-- simple node workbench: type `nodes` to see per-node latency, press `T` to retest, and sort the list by lower latency first
-- simple config workbenches: after opening `subscription / extension / chain`, you can use panel shortcuts like `1 / 2 / A / S / R ...`
-- runtime TUI: `sudo gateway start --tui` or `sudo gateway console --tui`
-- slash commands: `/status` `/summary` `/config` `/config open` `/proxy` `/tun` `/bypass` `/rules` `/rule` `/extension` `/chain` `/chains` `/nodes` `/speed` `/logs` `/help`
-- top tabs: `Esc` back to the header, `←/→` switch sections, `↓ / Enter` return to the action list
-- the right content area clearly marks each page as `info / action / confirm`
-- node workbench: `Ctrl+P` opens it; once inside, press `T` to test the current node latency
-- config workbenches: you can now change proxy source, TUN, local bypass, rule switches, chains mode, and residential-proxy settings directly inside the TUI
-- refresh cue: `R` refreshes the current page and shows a short pulse
-- confirmation flow: after `/stop` or `/restart`, type `y` or `n`
+- home menu: runtime status, nodes, subscriptions, networking, rules, extensions, config center, logs, and update notices
+- node workbench: shows per-node latency, lets you press `T` to retest, and sorts the list by lower latency first
+- subscription and proxy-source workbenches: create, switch, rename, or edit URL / file sources
+- networking workbench: toggle TUN and local bypass
+- rules workbench: toggle LAN direct, China direct, Apple, Nintendo, global proxy, and ad blocking
+- extension workbench: manage `chains / script / off`, chains `rule / global`, residential proxy, and airport group settings
+- full config center: still available from the menu through `gateway config`
+- the old `--tui` entry has been removed; if you still pass it, the CLI tells you to use the default console
 
 This makes it feel more like a persistent CLI workspace, not a one-shot command that prints and exits.
-
-Common plain-command examples:
-
-- `proxy source url`
-- `proxy url https://example.com/sub`
-- `tun on`
-- `bypass off`
-- `rule ads off`
-- `extension chains`
-- `chain mode global`
-- `chain airport Auto`
 
 ## Switching and Configuration
 
@@ -90,17 +71,12 @@ It is now recommended to manage these through `gateway config`:
 You can switch groups and nodes in two ways:
 
 1. Web panel: `http://<your-lan-ip>:9090/ui`
-2. Plain command console:
+2. Menu-driven CLI console:
    - start the gateway
-   - type `nodes`
+   - open `Nodes and Proxy Groups`
    - choose a node group
    - review the per-node latency list; type `T` if you want to retest the whole group
    - pick a node from the latency-sorted list and press Enter
-3. Runtime TUI:
-   - start the gateway
-   - press `Ctrl+P`
-   - choose a node group
-   - choose a node and press Enter
 
 This makes the project feel closer to a CLI workbench for Clash Verge Rev style workflows.
 

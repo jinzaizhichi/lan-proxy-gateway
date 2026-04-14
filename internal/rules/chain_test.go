@@ -21,7 +21,13 @@ func TestNormalProbeRulesUseOrdinaryProxyPath(t *testing.T) {
 func TestAIProxyRulesKeepResidentialProbe(t *testing.T) {
 	rules := AIProxyRules("AI Only")
 
-	if !slices.Contains(rules, "DOMAIN,checkip.amazonaws.com,AI Only") {
-		t.Fatal("AIProxyRules() should keep checkip.amazonaws.com on AI Only")
+	for _, want := range []string{
+		"DOMAIN,checkip.amazonaws.com,AI Only",
+		"DOMAIN,downloads.cursor.com,AI Only",
+		"DOMAIN,anysphere-binaries.s3.us-east-1.amazonaws.com,AI Only",
+	} {
+		if !slices.Contains(rules, want) {
+			t.Fatalf("AIProxyRules() missing %q", want)
+		}
 	}
 }

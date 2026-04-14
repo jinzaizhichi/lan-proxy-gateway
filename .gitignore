@@ -49,3 +49,4 @@ upgrade-local.sh
 *.bak
 *.backup
 *.orig
+.try

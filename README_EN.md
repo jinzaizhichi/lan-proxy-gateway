@@ -68,38 +68,24 @@ Useful for:
 
 ### 3. Runtime console
 
-By default, `gateway start` opens the plain command console. It is the more compatible mode, and it is the safer default while the runtime TUI is still being refined.
+By default, `gateway start` opens a menu-driven CLI console. You land on the home menu immediately, so there is no extra "login shell first, remember commands later" step.
 
-Common plain-command actions include:
+From the menu, you can directly:
 
-- `nodes`
-- `subscription`
-- `extension`
-- `chain`
-- `help`
+- view runtime status and the current config summary
+- switch proxy groups and nodes, with latency retest and sorting
+- manage subscriptions, proxy source, and subscription names
+- toggle TUN, local bypass, and recommended rules
+- manage `chains / script / off` and residential-proxy settings
+- open the full config center
+- check device setup, logs, and update notices
 
-Extra notes:
+Interaction style:
 
-- default `help` now stays focused on common actions; use `help all` for the full command list
-- `nodes` opens a node workbench that shows per-node latency, lets you press `T` to retest, and reorders the list by lower latency first
-- after opening `subscription / extension / chain`, you can type the panel shortcuts like `1 / 2 / A / S / R ...` instead of entering the full command every time
-
-If you want the full runtime TUI workbench, use:
-
-```bash
-sudo gateway start --tui
-```
-
-The TUI workspace gives you:
-
-- tabs, arrow-key navigation, and Enter-to-run actions
-- the right side clearly labels each page as `info / action / confirm`
-- a command bar at the bottom for direct commands
-- `Ctrl+P` opens the node workbench for switching nodes and pressing `T` to test the current node latency
-- `Esc` back to the top tabs, `←/→` to switch sections, and `↓` back into the action list
-- `R` refreshes the current page and gives a short visual refresh cue
-
-If you are already in simple mode, you can also type `tui` to switch into it later.
+- startup opens the home menu right away, then you pick by number
+- each workbench shows current state plus a fixed action list
+- `gateway console` re-enters the same menu system later
+- the old `--tui` entry has been removed; if you still pass it, the CLI tells you to use the default console
 
 ### 4. Rule system
 
@@ -192,49 +178,22 @@ Extra notes:
 
 By default, startup enters the plain command console and shows:
 
-- the config file path in use
-- your LAN gateway IP
-- runtime mode
-- egress summary
-- the simple-mode command prompt
-- direct commands for common settings
+- current node, proxy source, TUN, and extension summary
+- menu entries for nodes, subscriptions, networking, rules, extensions, and the config center
+- entries for logs, device setup notes, and update hints
 
-The default workspace now handles these common tasks directly:
-
-- node switching with latency display and full-group retest sorting
-- proxy source and subscription info
-- TUN and local bypass
-- recommended rule switches such as China direct and ad blocking
-- `chains / script / off`
-- `rule / global` for chains mode
-- residential proxy and airport group settings
-
-Default `help` stays centered on those high-frequency actions; use `help all` when you need the longer command list.
+This default console is designed around "pick from menus and change settings directly", not "memorize another runtime command language".
 
 The most important thing here is your LAN IP.
-
-If you want the runtime TUI workbench:
-
-```bash
-# macOS / Linux
-sudo gateway start --tui
-
-# Windows (Administrator terminal)
-gateway start --tui
-```
-
-The TUI provides the `Home / Proxy / Subscription` tabs, node switching, config workbenches, and the Dashboard view. If you still want to spell out the default, `gateway start --simple` is still accepted.
 
 If you leave the console, you can re-enter it at any time:
 
 ```bash
 # macOS / Linux
 sudo gateway console
-sudo gateway console --tui
 
 # Windows (Administrator terminal)
 gateway console
-gateway console --tui
 ```
 
 ### Step 4: Connect another device
@@ -273,10 +232,8 @@ You will see:
 |---|---|
 | `gateway install` | Initial setup wizard |
 | `gateway config` | Interactive config center |
-| `sudo gateway start` | Start gateway and open the default plain command console |
-| `sudo gateway start --tui` | Start gateway and open the runtime TUI workbench |
-| `sudo gateway console` | Re-enter the plain command console without restarting the gateway |
-| `sudo gateway console --tui` | Re-enter the runtime TUI workbench without restarting the gateway |
+| `sudo gateway start` | Start gateway and open the menu-driven CLI console |
+| `sudo gateway console` | Re-enter the menu-driven CLI console without restarting the gateway |
 | `gateway tun on` | Enable TUN transparent proxy mode |
 | `gateway tun off` | Disable TUN transparent proxy mode |
 | `gateway status` | Show runtime and egress status |
@@ -288,6 +245,28 @@ You will see:
 | `sudo gateway update` | Upgrade to the latest version |
 
 Full command reference: [docs/en/commands.md](docs/en/commands.md)
+
+## Local Development
+
+The repository now includes a root-level `dev.sh` script for local build, test, and run workflows.
+It is intended for `macOS / Linux` shell environments:
+
+```bash
+./dev.sh build
+./dev.sh test
+./dev.sh test-core
+./dev.sh run -- --version
+./dev.sh start
+```
+
+Notes:
+
+- `build` writes the dev binary to `.tmp/gateway-dev`
+- `test` runs `go test ./...`
+- `test-core` runs the smaller day-to-day core package set
+- `run -- <args>` builds first, then passes the args to the local binary as-is
+- `start / console / stop / restart` build locally first, then use `sudo` only for the runtime step when needed
+- the Go build cache defaults to `.cache/go-build` inside the repo, which helps avoid local global-cache permission issues
 
 ## How It Works
 
@@ -342,7 +321,7 @@ This project is mainly for:
 - networking and proxy learning
 - home LAN gateway practice
 - TUN / transparent proxy / routing rule experiments
-- AI client and CLI / TUI interaction design
+- AI client and menu-driven CLI interaction design
 
 Use it only where legal and appropriate.
 

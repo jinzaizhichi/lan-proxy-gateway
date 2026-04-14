@@ -15,7 +15,7 @@
 - `局域网共享`：让不能装代理 App 的设备也能走透明代理
 - `链式代理`：让 Claude / ChatGPT / Codex / Cursor 更适合走住宅出口
 
-> 完全开源，中文优先，主要用于网络与代理技术学习、家庭网关实践和 CLI / TUI 交互探索。
+> 完全开源，中文优先，主要用于网络与代理技术学习、家庭网关实践和菜单式 CLI 交互探索。
 
 ```mermaid
 graph TD
@@ -68,43 +68,24 @@ graph TD
 
 ### 3. 运行中控制台
 
-默认执行 `gateway start` 会进入纯命令控制台。这个模式兼容性更好，也更适合当前阶段日常使用和持续修 TUI bug。
+默认执行 `gateway start` 会直接进入菜单式 CLI 控制台。启动后就是首页菜单，不需要再像 MySQL 一样先进去再记一堆命令。
 
-纯命令模式里可以直接做常用操作，例如：
+菜单里现在可以直接完成这些高频操作：
 
-- `nodes`
-- `subscription`
-- `extension`
-- `chain`
-- `help`
+- 查看运行状态和当前配置摘要
+- 切换策略组与节点，并支持重新测速排序
+- 管理订阅、代理来源和订阅名称
+- 切换 TUN、本机绕过代理和推荐规则
+- 管理 `chains / script / off` 和住宅代理参数
+- 打开完整配置中心
+- 查看设备接入说明、日志和升级提示
 
-补充说明：
+交互方式：
 
-- 默认 `help` 只保留日常高频操作，输入 `help all` 再看完整命令清单
-- `nodes` 会打开节点工作台，展示每个节点延时，支持输入 `T` 主动重测一遍并按低延时排序
-- `subscription / extension / chain` 打开工作台后，可以直接输入面板里的 `1 / 2 / A / S / R ...`，不用手敲整条命令
-
-如果你想进入完整的运行中 TUI 工作台，可以使用：
-
-```bash
-sudo gateway start --tui
-```
-
-TUI 顶部分为三个 Tab：
-
-- **首页**：Clash 风格 Dashboard，一屏展示订阅流量、当前节点、TUN 状态、上下行速度、IP 链路和站点延迟
-- **代理**：节点切换、TUN / 规则 / 出口网络工作台
-- **订阅**：订阅档案管理、扩展脚本、chains 住宅代理工作台
-
-操作方式：
-
-- `←/→` 在顶部切换 Tab，`↓ / Enter` 进入左侧功能列表
-- `↑/↓` 选择功能，`Enter` 打开右侧详情/工作台
-- `Ctrl+P` 打开节点切换器，`T` 测当前节点延迟
-- `R` 刷新当前页面，`Esc` 回到上一个焦点区
-- 确认操作和参数输入通过居中弹窗完成，不占用底部空间
-
-如果你已经在简单模式里，也可以输入 `tui` 随时切进去。
+- 启动后直接显示首页菜单，按编号进入子菜单
+- 每个工作台都带当前摘要和固定菜单，不依赖隐藏命令
+- `gateway console` 可以随时重新进入同一套菜单控制台
+- 旧版 `--tui` 入口已移除，传入时会直接提示改用默认控制台
 
 ### 4. 规则系统
 
@@ -195,51 +176,24 @@ gateway start
 - `gateway update` 在 Windows 下会走后台替换流程，当前 `.exe` 退出后自动完成更新并重新启动网关
 - `gateway service install` 在 Windows 下会安装开机自启任务，不需要把 CLI 伪装成 `sc.exe` 服务
 
-默认模式下，启动成功后会进入纯命令控制台，终端会显示：
+默认模式下，启动成功后会直接进入菜单式 CLI 控制台，终端会显示：
 
-- 当前读取的配置文件路径
-- 局域网共享入口 IP
-- 运行模式
-- 出口摘要
-- 简单模式命令提示符
-- 可直接修改的常用配置命令
+- 当前节点、代理来源、TUN 和扩展模式摘要
+- 节点 / 订阅 / 网络 / 规则 / 扩展 / 配置中心等菜单入口
+- 日志、设备接入说明和升级提示入口
 
-简单模式里现在可以直接处理这些常用配置：
-
-- 节点切换，自动展示延时并支持整组重测排序
-- 代理来源和订阅信息
-- TUN 和本机绕过代理
-- 国内直连 / 广告拦截等推荐规则
-- chains / script / off
-- chains 的 `rule / global`
-- 住宅代理和机场出口组
-
-默认 `help` 会优先展示这些高频操作；如果你需要低频命令，再输入 `help all` 即可。
+这套控制台优先解决“直接选菜单就能改配置”，而不是要求你记住一批运行中命令。
 
 这一步里最重要的是记住你的局域网 IP。
-
-如果你想进入运行中 TUI 工作台：
-
-```bash
-# macOS / Linux
-sudo gateway start --tui
-
-# Windows（管理员终端）
-gateway start --tui
-```
-
-TUI 工作台顶部分为 `首页 / 代理 / 订阅` 三个 Tab，支持节点选择、配置工作台和 Dashboard 视图。如果只想显式声明简单模式，`gateway start --simple` 也仍然可用。
 
 如果你退出了控制台，之后可以随时重新进入：
 
 ```bash
 # macOS / Linux
 sudo gateway console
-sudo gateway console --tui
 
 # Windows（管理员终端）
 gateway console
-gateway console --tui
 ```
 
 ### 第 4 步：让其他设备接入
@@ -278,10 +232,8 @@ gateway status
 |---|---|
 | `gateway install` | 初始化向导 |
 | `gateway config` | 交互式配置中心 |
-| `sudo gateway start` | 启动网关并进入默认简单模式（兼容性更好） |
-| `sudo gateway start --tui` | 启动网关并进入运行中 TUI 工作台 |
-| `sudo gateway console` | 不重启网关，重新进入纯命令控制台 |
-| `sudo gateway console --tui` | 不重启网关，重新进入运行中 TUI 工作台 |
+| `sudo gateway start` | 启动网关并进入菜单式 CLI 控制台 |
+| `sudo gateway console` | 不重启网关，重新进入菜单式 CLI 控制台 |
 | `gateway tun on` | 开启 TUN 透明代理 |
 | `gateway tun off` | 关闭 TUN 透明代理 |
 | `gateway status` | 查看运行状态和出口网络 |
@@ -293,6 +245,28 @@ gateway status
 | `sudo gateway update` | 升级到最新版 |
 
 完整命令见 [docs/commands.md](docs/commands.md)。
+
+## 本地开发
+
+仓库根目录现在带了一个本地开发脚本 `dev.sh`，用来统一处理编译、测试和本地运行。
+适合 `macOS / Linux` 终端环境：
+
+```bash
+./dev.sh build
+./dev.sh test
+./dev.sh test-core
+./dev.sh run -- --version
+./dev.sh start
+```
+
+说明：
+
+- `build` 会把开发二进制编译到 `.tmp/gateway-dev`
+- `test` 跑 `go test ./...`
+- `test-core` 只跑这次日常最常用的一组核心包
+- `run -- <参数>` 会先编译，再把参数原样传给本地二进制
+- `start / console / stop / restart` 会先本地编译，再在运行阶段按需使用 `sudo`
+- Go build cache 默认放在仓库内 `.cache/go-build`，避免本机全局缓存权限把开发流程卡住
 
 ## 工作原理
 
@@ -346,7 +320,7 @@ flowchart LR
 - 网络与代理技术学习
 - 家庭局域网网关实践
 - TUN / 透明代理 / 分流规则研究
-- AI 客户端与 CLI / TUI 交互设计探索
+- AI 客户端与菜单式 CLI 交互设计探索
 
 请在你所在地区法律法规允许的前提下使用。
 

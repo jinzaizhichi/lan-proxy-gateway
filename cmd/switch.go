@@ -91,25 +91,28 @@ func runSwitch(cmd *cobra.Command, args []string) {
 	// Switch to file mode
 	if target == "file" {
 		if len(args) >= 2 {
-			path := expandUserPath(args[1])
-			if _, err := os.Stat(path); os.IsNotExist(err) {
-				ui.Error("文件不存在: %s", path)
-				os.Exit(1)
-			}
-			// Validate proxies section
-			count, err := proxy.ExtractProxies(path, os.DevNull)
+			validatedPath, count, err := validateSubscriptionFile(args[1])
 			if err != nil {
-				ui.Error("%s", err)
+				ui.Error("订阅文件校验失败: %s", err)
 				os.Exit(1)
 			}
 			ui.Info("检测到 %d 个代理节点", count)
-			cfg.Proxy.ConfigFile = path
+			cfg.Proxy.ConfigFile = validatedPath
 		}
 		if cfg.Proxy.ConfigFile == "" {
 			ui.Error("未配置文件路径")
 			fmt.Println("  用法: gateway switch file /path/to/config.yaml")
 			os.Exit(1)
 		}
+	}
+
+	if target == "url" {
+		count, err := validateSubscriptionURL(cfg.Proxy.SubscriptionURL)
+		if err != nil {
+			ui.Error("订阅链接校验失败: %s", err)
+			os.Exit(1)
+		}
+		ui.Info("订阅链接校验通过，识别到 %d 个节点", count)
 	}
 
 	oldSource := cfg.Proxy.Source
@@ -145,8 +148,16 @@ func runSwitch(cmd *cobra.Command, args []string) {
 
 		if cfg.Proxy.Source == "file" {
 			providerFile := filepath.Join(dDir, "proxy_provider", cfg.Proxy.SubscriptionName+".yaml")
-			count, err := proxy.ExtractProxies(cfg.Proxy.ConfigFile, providerFile)
+			validatedPath, count, err := validateSubscriptionFile(cfg.Proxy.ConfigFile)
 			if err != nil {
+				ui.Error("订阅文件校验失败: %s", err)
+				os.Exit(1)
+			}
+			cfg.Proxy.ConfigFile = validatedPath
+			if _, err := os.Stat(filepath.Dir(providerFile)); err != nil {
+				_ = os.MkdirAll(filepath.Dir(providerFile), 0755)
+			}
+			if count, err = proxyExtractToProviderFile(cfg.Proxy.ConfigFile, providerFile); err != nil {
 				ui.Error("提取代理节点失败: %s", err)
 				os.Exit(1)
 			}
@@ -162,6 +173,10 @@ func runSwitch(cmd *cobra.Command, args []string) {
 		fmt.Println()
 		ui.Info("如需生效，请重启网关: %s", elevatedCmd("start"))
 	}
+}
+
+func proxyExtractToProviderFile(inputPath, outputPath string) (int, error) {
+	return proxy.ExtractProxies(inputPath, outputPath)
 }
 
 func runSwitchExtension(cmd *cobra.Command, args []string) {
