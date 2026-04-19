@@ -22,13 +22,31 @@ type Engine struct {
 
 // New returns an Engine configured to run `bin` with its working directory.
 // cacheDir is optional (pass "" to disable geodata caching).
+//
+// proc is pre-created so Running() can detect a pre-existing background mihomo
+// left over from a prior `gateway` session that exited without calling Stop().
 func New(bin, workdir, cacheDir string) *Engine {
-	return &Engine{
+	e := &Engine{
 		bin:      bin,
 		workdir:  workdir,
 		cacheDir: cacheDir,
-		api:      NewClient(""), // baseURL filled in Start()
+		api:      NewClient(""), // baseURL filled in Start()/Attach()
 	}
+	e.proc = newProcess(bin, workdir, filepath.Join(workdir, "mihomo.log"))
+	return e
+}
+
+// Attach wires the API client to an already-running mihomo (identified by the
+// pid file in workdir). Returns true if a live process was found. This is the
+// reattach path: the prior `gateway` process exited, left mihomo as an orphan,
+// and the new process wants to pick up where it left off.
+func (e *Engine) Attach(cfg *configpkg.Config) bool {
+	if !e.Running() {
+		return false
+	}
+	e.api.baseURL = fmt.Sprintf("http://127.0.0.1:%d", cfg.Runtime.Ports.API)
+	e.api.secret = cfg.Runtime.APISecret
+	return true
 }
 
 // Workdir returns the working directory where the rendered config lives.
@@ -44,6 +62,15 @@ func (e *Engine) API() *Client { return e.api }
 func (e *Engine) Start(ctx context.Context, cfg *configpkg.Config) error {
 	if e.bin == "" {
 		return fmt.Errorf("未找到 mihomo 二进制，请先运行 `gateway install`")
+	}
+	// If mihomo is already alive (from a prior session we attached to, or a
+	// race in this session), treat Start as a no-op after wiring up the API.
+	// Without this, preflight below would flag OUR OWN mihomo as a port
+	// conflict and the user would be prompted to kill it.
+	if e.Running() {
+		e.api.baseURL = fmt.Sprintf("http://127.0.0.1:%d", cfg.Runtime.Ports.API)
+		e.api.secret = cfg.Runtime.APISecret
+		return nil
 	}
 	if err := os.MkdirAll(e.workdir, 0o755); err != nil {
 		return fmt.Errorf("create workdir: %w", err)

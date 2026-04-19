@@ -93,12 +93,11 @@ var installCmd = &cobra.Command{
 		fmt.Printf("    网关 + DNS → %s\n", a.Status().Gateway.LocalIP)
 		fmt.Println("  保存并重连 Wi-Fi 即可。")
 		fmt.Println()
-		color.New(color.Faint).Printf("Ctrl+C 停止；日志 %s\n", a.Engine.LogPath())
+		color.New(color.Faint).Printf("日志 %s\n", a.Engine.LogPath())
+		color.New(color.Faint).Println("接下来进入主菜单；Q 退出时网关会留在后台继续跑（停网关用菜单里的 4，或 sudo gateway stop）。")
 
-		// 保持前台运行，等 Ctrl+C
-		waitForSignal()
-		color.Yellow("\n正在停止…")
-		return a.Stop()
+		// 和失败路径、默认 `gateway` 一致：装完直接进主菜单，用户可以就地查状态、换源、装 service。
+		return console.Run(cmd.Context(), a)
 	},
 }
 

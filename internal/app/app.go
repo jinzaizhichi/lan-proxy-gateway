@@ -34,13 +34,17 @@ func New() (*App, error) {
 		return nil, err
 	}
 	bin, _ := platform.Current().ResolveMihomoPath("")
-	return &App{
+	a := &App{
 		Cfg:     cfg,
 		Paths:   paths,
 		Engine:  engine.New(bin, paths.MihomoDir, paths.CacheDir),
 		Gateway: gateway.New(),
 		Plat:    platform.Current(),
-	}, nil
+	}
+	// If a previous gateway session left mihomo running in the background,
+	// wire the API client to it so Running()/Reload()/Stop() all work.
+	a.Engine.Attach(a.Cfg)
+	return a, nil
 }
 
 // Configured reports whether gateway.yaml exists on disk.

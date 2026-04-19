@@ -22,6 +22,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/fatih/color"
 
@@ -243,8 +244,9 @@ func (c *consoleUI) main(ctx context.Context) error {
 		fmt.Fprintln(c.out, "  2  流量控制（模式 / 广告拦截 / 规则）")
 		fmt.Fprintln(c.out, "  3  代理端口来源")
 		fmt.Fprintln(c.out, "  4  启动 / 重启 / 停止")
-		fmt.Fprintln(c.out, "  5  日志 (mihomo.log 末尾 30 行)")
-		fmt.Fprintln(c.out, "  Q  退出")
+		fmt.Fprintln(c.out, "  5  日志 (查看 / tail 跟随)")
+		fmt.Fprintln(c.out, "  6  关闭 gateway 并退出（停 mihomo）")
+		fmt.Fprintln(c.out, "  Q  退出控制台（mihomo 保留在后台）")
 		choice := strings.ToLower(c.prompt("\n请选择：> "))
 		switch choice {
 		case "1":
@@ -257,6 +259,10 @@ func (c *consoleUI) main(ctx context.Context) error {
 			c.screenLifecycle(ctx)
 		case "5":
 			c.screenLogs()
+		case "6":
+			if c.shutdownGateway() {
+				return nil
+			}
 		case "q", "exit", "quit":
 			return nil
 		default:
@@ -563,7 +569,29 @@ func (c *consoleUI) screenLifecycle(ctx context.Context) {
 		}
 	case "4":
 		c.cleanupStaleMihomo()
+	case "0", "q", "Q", "":
+		return
+	default:
+		warnC.Fprintln(c.out, "无效选项，按 0 或 Q 返回主菜单")
 	}
+}
+
+// shutdownGateway stops mihomo (if running) and signals the main loop to exit.
+// Returns true when the caller should return out of the menu loop.
+func (c *consoleUI) shutdownGateway() bool {
+	running := c.app.Engine != nil && c.app.Engine.Running()
+	if running {
+		warnC.Fprintln(c.out, "\n这会停止 mihomo 并退出控制台，LAN 里指向本机的设备会失去代理。")
+		if !c.yesNo("确定要关闭 gateway？", false) {
+			return false
+		}
+		if err := c.app.Stop(); err != nil {
+			badC.Fprintf(c.out, "停止失败: %v\n", err)
+			return false
+		}
+		okC.Fprintln(c.out, "已停止 mihomo")
+	}
+	return true
 }
 
 // tryStart runs Start() and, on port conflict caused by a stale mihomo, offers
@@ -571,6 +599,10 @@ func (c *consoleUI) screenLifecycle(ctx context.Context) {
 // users who ran gateway once, crashed/killed the terminal, and now find the
 // port squatted by an orphan process.
 func (c *consoleUI) tryStart(ctx context.Context) {
+	if c.app.Engine.Running() {
+		okC.Fprintln(c.out, "已经在运行，无需再启动（如需应用新配置，选 2 重启 / 热重载）")
+		return
+	}
 	err := c.app.Start(ctx)
 	if err == nil {
 		okC.Fprintln(c.out, "已启动")
@@ -636,22 +668,111 @@ func (c *consoleUI) cleanupStaleMihomo() {
 
 func (c *consoleUI) screenLogs() {
 	path := c.app.Engine.LogPath()
+	tailN := 30
+	for {
+		c.banner(fmt.Sprintf("日志 · 末尾 %d 行 · %s", tailN, path))
+		if err := c.renderTail(path, tailN); err != nil {
+			warnC.Fprintf(c.out, "%v\n", err)
+		}
+		dimC.Fprintln(c.out, "\n  [回车] 刷新   [t] tail 跟随   [数字] 改行数   [q] 返回")
+		input := c.prompt("> ")
+		switch {
+		case input == "":
+			// 手动刷新：重绘一遍即可
+		case strings.EqualFold(input, "q") || strings.EqualFold(input, "quit"):
+			return
+		case strings.EqualFold(input, "t") || strings.EqualFold(input, "tail"):
+			c.tailFollow(path, tailN)
+		default:
+			if n, err := strconv.Atoi(input); err == nil && n > 0 {
+				tailN = n
+			} else {
+				warnC.Fprintln(c.out, "无效输入（回车=刷新，t=tail，数字=改行数，q=返回）")
+				c.pause()
+			}
+		}
+	}
+}
+
+// renderTail 把日志文件的末尾 n 行打到输出。文件不存在时返回友好错误。
+func (c *consoleUI) renderTail(path string, n int) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		warnC.Fprintf(c.out, "暂无日志 (%s)\n", path)
-		c.pause()
-		return
+		return fmt.Errorf("暂无日志 (%s)", path)
 	}
 	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
 	start := 0
-	if len(lines) > 30 {
-		start = len(lines) - 30
+	if len(lines) > n {
+		start = len(lines) - n
 	}
-	c.banner("日志 · " + path)
 	for _, l := range lines[start:] {
 		fmt.Fprintln(c.out, l)
 	}
-	c.pause()
+	return nil
+}
+
+// tailFollow 进入实时跟随模式：先打印末尾 n 行做上下文，然后轮询文件 size 把
+// 新增字节流写到终端，按回车退出。文件被截断（mihomo rotate/重启）时重置 offset。
+func (c *consoleUI) tailFollow(path string, n int) {
+	c.banner("日志 tail · " + path)
+	_ = c.renderTail(path, n)
+
+	f, err := os.Open(path)
+	if err != nil {
+		warnC.Fprintf(c.out, "无法打开 %s: %v\n", path, err)
+		c.pause()
+		return
+	}
+	defer f.Close()
+	if _, err := f.Seek(0, io.SeekEnd); err != nil {
+		warnC.Fprintf(c.out, "seek 失败: %v\n", err)
+		c.pause()
+		return
+	}
+	dimC.Fprintln(c.out, "\n（实时跟踪中，按回车退出）")
+
+	// 用独立 goroutine 等一个回车；主循环按 tick 读增量。
+	// 这期间 c.in 被 goroutine 独占 —— 外层 screenLogs 要等本函数返回后才会再读。
+	done := make(chan struct{})
+	go func() {
+		_, _ = c.in.ReadString('\n')
+		close(done)
+	}()
+
+	ticker := time.NewTicker(300 * time.Millisecond)
+	defer ticker.Stop()
+
+	var lastSize int64
+	if info, err := f.Stat(); err == nil {
+		lastSize = info.Size()
+	}
+	buf := make([]byte, 8192)
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+			info, err := f.Stat()
+			if err != nil {
+				continue
+			}
+			if info.Size() < lastSize {
+				// 文件被截断（rotate / mihomo 重启），从头读
+				_, _ = f.Seek(0, io.SeekStart)
+				lastSize = 0
+			}
+			for {
+				rn, rerr := f.Read(buf)
+				if rn > 0 {
+					_, _ = c.out.Write(buf[:rn])
+				}
+				if rerr != nil {
+					break
+				}
+			}
+			lastSize = info.Size()
+		}
+	}
 }
 
 func (c *consoleUI) pause() {
