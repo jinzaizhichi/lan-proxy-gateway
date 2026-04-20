@@ -159,12 +159,20 @@ func (darwinPlatform) InstallService(binPath string) error {
 	if err := os.WriteFile(launchdPlistPath(), []byte(plist), 0o644); err != nil {
 		return fmt.Errorf("write plist: %w", err)
 	}
+	// launchd 经常残留「上一次 bootstrap 半失败但 label 已注册」的状态，
+	// 不先 bootout 的话再次 bootstrap 会返回 exit 5 / Input/output error。
+	// bootout 在未注册时返回非零，吞掉。
+	_, _ = run("launchctl", "bootout", "system/"+launchdLabel)
 	if _, err := run("launchctl", "bootstrap", "system", launchdPlistPath()); err != nil {
-		// Ignore "already bootstrapped" errors idempotently.
-		if !strings.Contains(err.Error(), "already loaded") {
-			return err
+		if strings.Contains(err.Error(), "already loaded") ||
+			strings.Contains(err.Error(), "service already bootstrapped") {
+			return nil
 		}
+		return fmt.Errorf("launchctl bootstrap: %w", err)
 	}
+	// 如果之前被加进 disabled 列表（launchctl disable），bootstrap 成功但 launchd 不会拉起。
+	// enable 兜一手，未 disable 时是 no-op。
+	_, _ = run("launchctl", "enable", "system/"+launchdLabel)
 	return nil
 }
 
