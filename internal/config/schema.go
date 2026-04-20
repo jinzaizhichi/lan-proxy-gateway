@@ -129,6 +129,10 @@ type RuntimePorts struct {
 
 // Default returns a fresh config with sensible defaults for first-time users.
 // Defaults: LAN gateway on, TUN on, rule mode, adblock on, external proxy at 127.0.0.1:7890.
+//
+// 本机 Runtime 端口避开主流 VPN 客户端的默认值（Clash/mihomo/Clash Verge 都爱占
+// 7890/7892/9090/7897/9097），改成 17890/17892/19090，减少端口冲突。
+// Source.External 默认仍是 7890 —— 用户本机 Clash/Verge 的上游端口大多是这个。
 func Default() *Config {
 	return &Config{
 		Version: Version,
@@ -159,7 +163,7 @@ func Default() *Config {
 			},
 		},
 		Runtime: RuntimeConfig{
-			Ports:    RuntimePorts{Mixed: 7890, Redir: 7892, API: 9090},
+			Ports:    RuntimePorts{Mixed: 17890, Redir: 17892, API: 19090},
 			LogLevel: "warning",
 		},
 	}

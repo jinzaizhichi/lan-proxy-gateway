@@ -20,8 +20,8 @@ func TestRenderExternalSource(t *testing.T) {
 		t.Fatalf("render: %v", err)
 	}
 	s := string(out)
-	if !strings.Contains(s, "mixed-port: 7890") {
-		t.Errorf("missing mixed port substitution")
+	if !strings.Contains(s, "mixed-port: 17890") {
+		t.Errorf("missing mixed port substitution (默认 17890)")
 	}
 	if !strings.Contains(s, "mode: rule") {
 		t.Errorf("mihomo mode not substituted")

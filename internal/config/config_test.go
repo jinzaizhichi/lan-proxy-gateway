@@ -17,8 +17,8 @@ func TestDefaultIsValid(t *testing.T) {
 	if !cfg.Traffic.Adblock {
 		t.Errorf("default traffic.adblock should be true")
 	}
-	if cfg.Runtime.Ports.Mixed != 7890 {
-		t.Errorf("default mixed port = %d, want 7890", cfg.Runtime.Ports.Mixed)
+	if cfg.Runtime.Ports.Mixed != 17890 {
+		t.Errorf("default mixed port = %d, want 17890 (避开 Clash 默认 7890)", cfg.Runtime.Ports.Mixed)
 	}
 }
 

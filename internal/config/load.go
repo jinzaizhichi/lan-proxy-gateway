@@ -207,13 +207,13 @@ func Normalize(cfg *Config) {
 		cfg.Source.Subscription.Name = "subscription"
 	}
 	if cfg.Runtime.Ports.Mixed == 0 {
-		cfg.Runtime.Ports.Mixed = 7890
+		cfg.Runtime.Ports.Mixed = 17890
 	}
 	if cfg.Runtime.Ports.Redir == 0 {
-		cfg.Runtime.Ports.Redir = 7892
+		cfg.Runtime.Ports.Redir = 17892
 	}
 	if cfg.Runtime.Ports.API == 0 {
-		cfg.Runtime.Ports.API = 9090
+		cfg.Runtime.Ports.API = 19090
 	}
 	if cfg.Gateway.DNS.Port == 0 {
 		cfg.Gateway.DNS.Port = 53

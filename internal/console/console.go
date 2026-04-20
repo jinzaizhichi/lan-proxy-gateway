@@ -328,23 +328,20 @@ func (c *consoleUI) screenTraffic(ctx context.Context) {
 	for {
 		c.banner("流量控制")
 		cfg := c.app.Cfg
-		fmt.Fprintf(c.out, "  模式: %s   广告拦截: %s   TUN: %s   DNS: %s (端口 %d)\n\n",
-			cfg.Traffic.Mode, onOff(cfg.Traffic.Adblock),
+		fmt.Fprintf(c.out, "  模式: %s   TUN: %s   广告拦截: %s\n\n",
+			cfg.Traffic.Mode,
 			onOff(cfg.Gateway.TUN.Enabled),
-			onOff(cfg.Gateway.DNS.Enabled), cfg.Gateway.DNS.Port)
-		fmt.Fprintln(c.out, "  1  切换模式 (rule / global / direct)")
-		fmt.Fprintln(c.out, "  2  开关广告拦截")
-		fmt.Fprintln(c.out, "  3  开关 TUN 模式")
-		fmt.Fprintln(c.out, "  4  开关 DNS 代理（端口冲突时关掉它最常见）")
-		fmt.Fprintln(c.out, "  5  修改 DNS 监听端口（默认 53）")
-		fmt.Fprintln(c.out, "  6  修改 mixed 端口（默认 7890）")
-		fmt.Fprintln(c.out, "  7  修改 API 端口（默认 9090）")
+			onOff(cfg.Traffic.Adblock))
+		fmt.Fprintln(c.out, "  1  切换模式     rule=国内直连+国外代理（推荐）/ global=全走代理 / direct=全直连")
+		fmt.Fprintln(c.out, "  2  开关 TUN     （Switch/PS5 等能走代理的关键，一般别动）")
+		fmt.Fprintln(c.out, "  3  开关广告拦截")
+		dimC.Fprintln(c.out, "  9  高级设置     （DNS 开关 / 端口冲突调整，日常不用来）")
 		dimC.Fprintln(c.out, "  0  返回主菜单（或按 Q）")
 		switch c.prompt("选择：> ") {
 		case "1":
-			fmt.Fprintln(c.out, "  1) rule    规则模式")
-			fmt.Fprintln(c.out, "  2) global  全局")
-			fmt.Fprintln(c.out, "  3) direct  直连")
+			fmt.Fprintln(c.out, "  1) rule    规则模式（推荐）")
+			fmt.Fprintln(c.out, "  2) global  全局代理")
+			fmt.Fprintln(c.out, "  3) direct  全部直连")
 			choice := c.prompt("请选择：> ")
 			var m string
 			switch choice {
@@ -364,10 +361,6 @@ func (c *consoleUI) screenTraffic(ctx context.Context) {
 				okC.Fprintf(c.out, "已切换到 %s 模式\n", m)
 			}
 		case "2":
-			if err := c.app.ToggleAdblock(ctx); err != nil {
-				badC.Fprintln(c.out, err.Error())
-			}
-		case "3":
 			// TUN 是让流量真正走代理的关键；关之前警告一下。
 			if c.app.Cfg.Gateway.TUN.Enabled {
 				warnC.Fprintln(c.out, "\n⚠ 关闭 TUN 的后果：")
@@ -384,7 +377,36 @@ func (c *consoleUI) screenTraffic(ctx context.Context) {
 			} else {
 				okC.Fprintf(c.out, "TUN 已 %s\n", onOff(c.app.Cfg.Gateway.TUN.Enabled))
 			}
-		case "4":
+		case "3":
+			if err := c.app.ToggleAdblock(ctx); err != nil {
+				badC.Fprintln(c.out, err.Error())
+			}
+		case "9":
+			c.screenTrafficAdvanced(ctx)
+		case "0", "q", "Q", "":
+			return
+		default:
+			warnC.Fprintln(c.out, "无效选项，按 0 或 Q 返回主菜单")
+		}
+	}
+}
+
+// screenTrafficAdvanced 收纳普通用户基本不需要碰的开关：DNS 代理开关、
+// DNS 监听端口、mixed 端口、API 端口。99% 场景下来这里只是为了解端口冲突。
+func (c *consoleUI) screenTrafficAdvanced(ctx context.Context) {
+	for {
+		c.banner("流量控制 · 高级（端口冲突时才来）")
+		cfg := c.app.Cfg
+		fmt.Fprintf(c.out, "  DNS 代理: %s (监听端口 %d)   mixed: %d   API: %d\n\n",
+			onOff(cfg.Gateway.DNS.Enabled), cfg.Gateway.DNS.Port,
+			cfg.Runtime.Ports.Mixed, cfg.Runtime.Ports.API)
+		fmt.Fprintln(c.out, "  1  开关 DNS 代理           （本机 53 端口被 Clash Verge 等占用时关掉）")
+		fmt.Fprintln(c.out, "  2  修改 DNS 监听端口        （默认 53；改了 LAN 设备就基本解析不了，不建议动）")
+		fmt.Fprintln(c.out, "  3  修改 mixed 端口          （HTTP+SOCKS5，默认 17890，避开了 Clash 7890）")
+		fmt.Fprintln(c.out, "  4  修改 API 端口            （默认 19090，避开了 Clash 9090）")
+		dimC.Fprintln(c.out, "  0  返回（或按 Q）")
+		switch c.prompt("选择：> ") {
+		case "1":
 			// 关 DNS 是有重大后果的操作，必须讲清楚 LAN 设备会变啥样。
 			if c.app.Cfg.Gateway.DNS.Enabled {
 				warnC.Fprintln(c.out, "\n⚠ 关闭 DNS 代理的影响：")
@@ -412,16 +434,16 @@ func (c *consoleUI) screenTraffic(ctx context.Context) {
 			}
 			c.app.Cfg.Gateway.DNS.Enabled = !c.app.Cfg.Gateway.DNS.Enabled
 			c.saveAndMaybeReload(ctx, fmt.Sprintf("DNS 已 %s", onOff(c.app.Cfg.Gateway.DNS.Enabled)))
-		case "5":
+		case "2":
 			c.promptPort(ctx, "DNS 监听端口", &c.app.Cfg.Gateway.DNS.Port)
-		case "6":
+		case "3":
 			c.promptPort(ctx, "mixed 端口", &c.app.Cfg.Runtime.Ports.Mixed)
-		case "7":
+		case "4":
 			c.promptPort(ctx, "API 端口", &c.app.Cfg.Runtime.Ports.API)
 		case "0", "q", "Q", "":
 			return
 		default:
-			warnC.Fprintln(c.out, "无效选项，按 0 或 Q 返回主菜单")
+			warnC.Fprintln(c.out, "无效选项，按 0 或 Q 返回")
 		}
 	}
 }
