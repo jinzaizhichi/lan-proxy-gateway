@@ -30,6 +30,7 @@ import (
 	"github.com/tght/lan-proxy-gateway/internal/config"
 	"github.com/tght/lan-proxy-gateway/internal/engine"
 	"github.com/tght/lan-proxy-gateway/internal/gateway"
+	"github.com/tght/lan-proxy-gateway/internal/source"
 )
 
 // Run is the entry point. It blocks until the user exits.
@@ -154,25 +155,22 @@ func (c *consoleUI) onboard(ctx context.Context) error {
 	fmt.Fprintln(c.out)
 
 	// 唯一需要用户决策的：代理端口来源
-	titleC.Fprintln(c.out, "  只剩一件事：把流量转发到哪个代理？")
-	fmt.Fprintln(c.out, "    1) 使用本机已有代理端口    (已在跑 Clash Verge / Shadowrocket 选这个)")
-	fmt.Fprintln(c.out, "    2) 订阅链接                (输入机场 URL，网关自己开代理)")
-	fmt.Fprintln(c.out, "    3) 本地 Clash 配置文件     (指向一个 .yaml)")
-	fmt.Fprintln(c.out, "    4) 远程单点代理            (手填 socks5 / http)")
-	fmt.Fprintln(c.out, "    5) 暂不配置                (全部走直连，以后再来)")
+	titleC.Fprintln(c.out, "  只剩一件事：把流量转发到哪里？")
+	fmt.Fprintln(c.out, "    1) 单点代理        (填 主机+端口；本机 Clash Verge / 远程机场的单个节点都走这个)")
+	fmt.Fprintln(c.out, "    2) 机场订阅        (粘一个订阅 URL，网关自己抓节点列表)")
+	fmt.Fprintln(c.out, "    3) 本地配置文件    (指向一个 .yaml；格式和机场订阅一致，只是本地)")
+	fmt.Fprintln(c.out, "    4) 暂不配置        (全部走直连，以后再来)")
 	fmt.Fprintln(c.out)
-	choice := c.ask("请选择 1-5", "1")
+	choice := c.ask("请选择 1-4", "1")
 	switch choice {
 	case "2":
 		c.configureSubscription()
 	case "3":
 		c.configureFile()
 	case "4":
-		c.configureRemote()
-	case "5":
 		c.app.Cfg.Source.Type = config.SourceTypeNone
 	default:
-		c.configureExternal()
+		c.configureSingle()
 	}
 
 	if err := c.app.Save(); err != nil {
@@ -185,20 +183,62 @@ func (c *consoleUI) onboard(ctx context.Context) error {
 
 // --- Source-type configurators ---
 
-func (c *consoleUI) configureExternal() {
-	c.app.Cfg.Source.Type = config.SourceTypeExternal
-	e := &c.app.Cfg.Source.External
-	e.Name = "本机已有代理"
-	e.Server = c.ask("  代理主机", firstNonEmpty(e.Server, "127.0.0.1"))
-	port := c.ask("  代理端口", strconv.Itoa(firstNonZero(e.Port, 7890)))
-	if p, err := strconv.Atoi(port); err == nil && p > 0 {
-		e.Port = p
+// configureSingle 是「单点代理」入口，合并以前的 external + remote。
+// 填了用户名就存 SourceTypeRemote（有认证），否则存 SourceTypeExternal（无认证），
+// 两种 type 底层 materialize 出来的 mihomo proxy 形态一致，只是认证字段的有无。
+func (c *consoleUI) configureSingle() {
+	// 从当前配置取已有值做默认（无论目前是 external 还是 remote）
+	defServer, defPort, defKind, defUser, defPass := "127.0.0.1", 7890, "http", "", ""
+	switch c.app.Cfg.Source.Type {
+	case config.SourceTypeExternal:
+		e := c.app.Cfg.Source.External
+		defServer = firstNonEmpty(e.Server, defServer)
+		defPort = firstNonZero(e.Port, defPort)
+		defKind = firstNonEmpty(e.Kind, defKind)
+	case config.SourceTypeRemote:
+		r := c.app.Cfg.Source.Remote
+		defServer = firstNonEmpty(r.Server, defServer)
+		defPort = firstNonZero(r.Port, defPort)
+		defKind = firstNonEmpty(r.Kind, defKind)
+		defUser = r.Username
+		defPass = r.Password
 	}
-	kind := strings.ToLower(c.ask("  代理类型 (http 或 socks5)", firstNonEmpty(e.Kind, "http")))
+
+	server := c.ask("  主机（本机代理就填 127.0.0.1）", defServer)
+	portStr := c.ask("  端口", strconv.Itoa(defPort))
+	port := defPort
+	if p, err := strconv.Atoi(strings.TrimSpace(portStr)); err == nil && p > 0 {
+		port = p
+	}
+	kind := strings.ToLower(c.ask("  类型 (http 或 socks5)", defKind))
 	if kind != "socks5" {
 		kind = "http"
 	}
-	e.Kind = kind
+	user := c.ask("  用户名（不需要认证直接回车）", defUser)
+	pass := defPass
+	if user != "" {
+		pass = c.ask("  密码", defPass)
+	}
+
+	if user == "" {
+		c.app.Cfg.Source.Type = config.SourceTypeExternal
+		c.app.Cfg.Source.External = config.ExternalProxy{
+			Name:   firstNonEmpty(c.app.Cfg.Source.External.Name, "单点代理"),
+			Server: server,
+			Port:   port,
+			Kind:   kind,
+		}
+	} else {
+		c.app.Cfg.Source.Type = config.SourceTypeRemote
+		c.app.Cfg.Source.Remote = config.RemoteProxy{
+			Name:     firstNonEmpty(c.app.Cfg.Source.Remote.Name, "单点代理"),
+			Server:   server,
+			Port:     port,
+			Kind:     kind,
+			Username: user,
+			Password: pass,
+		}
+	}
 }
 
 func (c *consoleUI) configureSubscription() {
@@ -210,27 +250,7 @@ func (c *consoleUI) configureSubscription() {
 
 func (c *consoleUI) configureFile() {
 	c.app.Cfg.Source.Type = config.SourceTypeFile
-	c.app.Cfg.Source.File.Path = c.ask("  Clash 配置文件绝对路径", c.app.Cfg.Source.File.Path)
-}
-
-func (c *consoleUI) configureRemote() {
-	c.app.Cfg.Source.Type = config.SourceTypeRemote
-	r := &c.app.Cfg.Source.Remote
-	r.Name = c.ask("  代理名称", firstNonEmpty(r.Name, "RemoteProxy"))
-	r.Server = c.ask("  代理主机", r.Server)
-	portStr := c.ask("  代理端口", strconv.Itoa(firstNonZero(r.Port, 443)))
-	if p, err := strconv.Atoi(portStr); err == nil && p > 0 {
-		r.Port = p
-	}
-	kind := strings.ToLower(c.ask("  代理类型 (http 或 socks5)", firstNonEmpty(r.Kind, "socks5")))
-	if kind != "http" {
-		kind = "socks5"
-	}
-	r.Kind = kind
-	r.Username = c.ask("  用户名 (可选，无需认证直接回车)", r.Username)
-	if r.Username != "" {
-		r.Password = c.ask("  密码", r.Password)
-	}
+	c.app.Cfg.Source.File.Path = c.ask("  本地配置文件绝对路径 (Clash/mihomo YAML)", c.app.Cfg.Source.File.Path)
 }
 
 // --- Main menu ---
@@ -308,13 +328,13 @@ func (c *consoleUI) printStatus() {
 func sourceLabel(s string) string {
 	switch s {
 	case config.SourceTypeExternal:
-		return "本机已有代理（external）"
+		return "单点代理（本机，external）"
 	case config.SourceTypeSubscription:
 		return "机场订阅（subscription）"
 	case config.SourceTypeFile:
-		return "本地 Clash 配置文件（file）"
+		return "本地配置文件（file）"
 	case config.SourceTypeRemote:
-		return "远程单点代理（remote）"
+		return "单点代理（远程带认证，remote）"
 	case config.SourceTypeNone, "":
 		return "未配置 · 全部直连"
 	default:
@@ -524,30 +544,47 @@ func (c *consoleUI) saveAndMaybeReload(ctx context.Context, okMsg string) {
 
 func (c *consoleUI) screenSource(ctx context.Context) {
 	for {
-		c.banner("代理端口来源")
-		fmt.Fprintf(c.out, "  当前: %s\n\n", c.app.Cfg.Source.Type)
-		fmt.Fprintln(c.out, "  1  本机已有代理端口 (external)")
-		fmt.Fprintln(c.out, "  2  订阅链接           (subscription)")
-		fmt.Fprintln(c.out, "  3  Clash 配置文件     (file)")
-		fmt.Fprintln(c.out, "  4  远程单点代理       (remote)")
-		fmt.Fprintln(c.out, "  5  不配置 (仅直连)    (none)")
+		c.banner("换代理源")
+		fmt.Fprintf(c.out, "  当前: %s\n\n", sourceLabel(c.app.Cfg.Source.Type))
+		fmt.Fprintln(c.out, "  1  单点代理          主机+端口（含认证）")
+		fmt.Fprintln(c.out, "  2  机场订阅          粘 URL")
+		fmt.Fprintln(c.out, "  3  本地配置文件      .yaml 绝对路径")
+		fmt.Fprintln(c.out, "  4  暂不配置          全部直连")
+		fmt.Fprintln(c.out)
+		// 切换节点只对 subscription / file 有意义（单点代理只有一个 Upstream）
+		if c.app.Cfg.Source.Type == config.SourceTypeSubscription ||
+			c.app.Cfg.Source.Type == config.SourceTypeFile {
+			fmt.Fprintln(c.out, "  N  切换节点          从订阅/文件里挑分组+节点")
+		}
+		fmt.Fprintln(c.out, "  T  测试连通性         试试当前源能不能用")
 		dimC.Fprintln(c.out, "  0  返回主菜单（或按 Q）")
-		choice := c.prompt("选择：> ")
+
+		choice := strings.ToLower(c.prompt("选择：> "))
+		reload := true // 换源后通常要 save+reload
 		switch choice {
 		case "1":
-			c.configureExternal()
+			c.configureSingle()
 		case "2":
 			c.configureSubscription()
 		case "3":
 			c.configureFile()
 		case "4":
-			c.configureRemote()
-		case "5":
 			c.app.Cfg.Source.Type = config.SourceTypeNone
-		case "0", "q", "Q", "":
+		case "n":
+			c.screenSwitchNode(ctx)
+			reload = false // 切节点走 API，不需要 Save
+			continue
+		case "t":
+			c.testSourceConnectivity(ctx)
+			reload = false
+			continue
+		case "0", "q", "":
 			return
 		default:
 			warnC.Fprintln(c.out, "无效选项，按 0 或 Q 返回")
+			continue
+		}
+		if !reload {
 			continue
 		}
 		if err := c.app.Save(); err != nil {
@@ -564,6 +601,92 @@ func (c *consoleUI) screenSource(ctx context.Context) {
 			okC.Fprintln(c.out, "已保存（下次 start 生效）")
 		}
 	}
+}
+
+// testSourceConnectivity 跑一次 source.Test，把结果用中文告诉用户。
+func (c *consoleUI) testSourceConnectivity(ctx context.Context) {
+	fmt.Fprintln(c.out, "\n测试当前源……")
+	ctx2, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	if err := source.Test(ctx2, c.app.Cfg.Source); err != nil {
+		badC.Fprintf(c.out, "  ✗ 不通：%v\n", err)
+	} else {
+		okC.Fprintln(c.out, "  ✓ 可达")
+	}
+	c.pause()
+}
+
+// screenSwitchNode 让用户在 mihomo 当前加载的 proxy-groups 里挑分组、挑节点。
+// 依赖 mihomo API 在跑；不在跑就提示先启动。
+func (c *consoleUI) screenSwitchNode(ctx context.Context) {
+	if c.app.Engine == nil || !c.app.Engine.Running() {
+		warnC.Fprintln(c.out, "\n切换节点需要 mihomo 在跑：先回主菜单 4 启动网关再来")
+		c.pause()
+		return
+	}
+	client := c.app.Engine.API()
+	for {
+		c.banner("切换节点")
+		listCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		groups, err := client.ListProxyGroups(listCtx)
+		cancel()
+		if err != nil {
+			badC.Fprintf(c.out, "拉取分组失败：%v\n", err)
+			c.pause()
+			return
+		}
+		if len(groups) == 0 {
+			warnC.Fprintln(c.out, "没有可切换的分组（当前源只提供了单个 Proxy 组，不用切）")
+			c.pause()
+			return
+		}
+		for i, g := range groups {
+			fmt.Fprintf(c.out, "  %2d  %-20s  当前: %s  (共 %d 个节点)\n",
+				i+1, g.Name, g.Now, len(g.All))
+		}
+		dimC.Fprintln(c.out, "   0  返回（或按 Q）")
+		input := strings.ToLower(c.prompt("选分组：> "))
+		if input == "0" || input == "" || input == "q" {
+			return
+		}
+		idx, err := strconv.Atoi(input)
+		if err != nil || idx < 1 || idx > len(groups) {
+			warnC.Fprintln(c.out, "无效选项")
+			continue
+		}
+		c.screenSwitchNodeInGroup(ctx, groups[idx-1])
+	}
+}
+
+// screenSwitchNodeInGroup 展示一个分组里的所有节点，当前选中的加 ✓。
+func (c *consoleUI) screenSwitchNodeInGroup(ctx context.Context, g engine.ProxyGroup) {
+	c.banner(fmt.Sprintf("分组：%s  (当前：%s)", g.Name, g.Now))
+	for i, n := range g.All {
+		prefix := "    "
+		if n == g.Now {
+			prefix = "  ✓ "
+		}
+		fmt.Fprintf(c.out, "  %2d%s%s\n", i+1, prefix, n)
+	}
+	dimC.Fprintln(c.out, "   0  返回（或按 Q）")
+	input := strings.ToLower(c.prompt("选节点：> "))
+	if input == "0" || input == "" || input == "q" {
+		return
+	}
+	idx, err := strconv.Atoi(input)
+	if err != nil || idx < 1 || idx > len(g.All) {
+		warnC.Fprintln(c.out, "无效选项")
+		return
+	}
+	node := g.All[idx-1]
+	ctx2, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := c.app.Engine.API().SelectNode(ctx2, g.Name, node); err != nil {
+		badC.Fprintf(c.out, "切换失败：%v\n", err)
+	} else {
+		okC.Fprintf(c.out, "已切换 %s → %s\n", g.Name, node)
+	}
+	c.pause()
 }
 
 func (c *consoleUI) screenLifecycle(ctx context.Context) {
