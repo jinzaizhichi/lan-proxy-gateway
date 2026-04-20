@@ -286,6 +286,30 @@ func (c *consoleUI) configureSingle() {
 	}
 }
 
+// configureScript 让用户设置 / 清空增强脚本路径。
+// 留空视作「清空」（同 Clash Verge Rev 关掉 Script）。
+// 脚本会在 render 完 final config.yaml 之后执行一次，签名固定 main(config) -> config。
+func (c *consoleUI) configureScript() {
+	fmt.Fprintln(c.out, "\n  增强脚本：在最终 mihomo config 上跑一次 JS（function main(config){...return config;}）")
+	fmt.Fprintln(c.out, "  填入 .js 绝对路径。直接回车 = 不使用脚本 / 清除当前脚本。")
+	path := c.ask("  脚本路径", c.app.Cfg.Source.ScriptPath)
+	path = strings.TrimSpace(path)
+	if path == "" {
+		c.app.Cfg.Source.ScriptPath = ""
+		okC.Fprintln(c.out, "  已清除增强脚本")
+		return
+	}
+	// 文件是否存在先检查一下，避免用户输错后默默失败
+	if _, err := os.Stat(path); err != nil {
+		warnC.Fprintf(c.out, "  ⚠ 找不到 %s: %v\n", path, err)
+		if !c.yesNo("  仍要保存这个路径？", false) {
+			return
+		}
+	}
+	c.app.Cfg.Source.ScriptPath = path
+	okC.Fprintf(c.out, "  已设置增强脚本: %s\n", path)
+}
+
 func (c *consoleUI) configureSubscription() {
 	c.app.Cfg.Source.Type = config.SourceTypeSubscription
 	s := &c.app.Cfg.Source.Subscription
@@ -657,6 +681,11 @@ func (c *consoleUI) screenSource(ctx context.Context) {
 			c.app.Cfg.Source.Type == config.SourceTypeFile {
 			fmt.Fprintln(c.out, "  N  切换节点        从订阅/文件里挑分组+节点")
 		}
+		scriptDesc := dimC.Sprint("未配置")
+		if c.app.Cfg.Source.ScriptPath != "" {
+			scriptDesc = c.app.Cfg.Source.ScriptPath
+		}
+		fmt.Fprintf(c.out, "  S  增强脚本        %s  （Clash Verge Rev 同款 main(config) 脚本）\n", scriptDesc)
 		fmt.Fprintln(c.out, "  T  重新测试        再跑一次连通性测试")
 		dimC.Fprintln(c.out, "  0  返回主菜单（或按 Q）")
 
@@ -678,6 +707,9 @@ func (c *consoleUI) screenSource(ctx context.Context) {
 		case "n":
 			c.screenSwitchNode(ctx)
 			continue
+		case "s":
+			c.configureScript()
+			changed = true
 		case "t":
 			probes = c.probeAllSources(ctx, c.app.Cfg)
 			continue

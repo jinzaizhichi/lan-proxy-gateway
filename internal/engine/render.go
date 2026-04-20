@@ -11,6 +11,7 @@ import (
 
 	"github.com/tght/lan-proxy-gateway/embed"
 	configpkg "github.com/tght/lan-proxy-gateway/internal/config"
+	"github.com/tght/lan-proxy-gateway/internal/script"
 	"github.com/tght/lan-proxy-gateway/internal/source"
 	"github.com/tght/lan-proxy-gateway/internal/traffic"
 )
@@ -36,6 +37,17 @@ func Render(ctx context.Context, cfg *configpkg.Config, workDir string) ([]byte,
 	out = strings.ReplaceAll(out, "{{DNS_PORT}}", strconv.Itoa(cfg.Gateway.DNS.Port))
 	out = strings.ReplaceAll(out, "{{PROXY_BLOCK}}", frag.YAML)
 	out = strings.ReplaceAll(out, "{{RULES_BLOCK}}", rules)
+
+	// 用户可选的增强脚本：对最终 config 做一次 JS 变换（Clash Verge Rev 同款）
+	if cfg.Source.ScriptPath != "" {
+		// 只对 subscription / file 有意义（单点代理没啥可加工的）。
+		// 其他 type 也跑的话用户会发现规则改不动订阅分组；这里保持简单，跑就跑。
+		modified, err := script.Apply(cfg.Source.ScriptPath, []byte(out))
+		if err != nil {
+			return nil, fmt.Errorf("执行增强脚本失败: %w", err)
+		}
+		return modified, nil
+	}
 	return []byte(out), nil
 }
 
