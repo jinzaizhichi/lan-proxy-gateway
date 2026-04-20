@@ -22,6 +22,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fatih/color"
@@ -41,6 +42,8 @@ func Run(ctx context.Context, a *app.App) error {
 			return err
 		}
 	}
+	// 拉起代理源健康 supervisor：mihomo 在跑时自动体检，挂了切 direct 保命。
+	a.StartSupervisor(ctx)
 	return c.main(ctx)
 }
 
@@ -312,6 +315,14 @@ func (c *consoleUI) printStatus() {
 	fmt.Fprintf(c.out, "    本机 IP: %s\n", ip)
 	fmt.Fprintf(c.out, "  代理源: %s\n", sourceLabel(s.Source))
 
+	// 代理源异常 → supervisor 已切 direct 保证 LAN 通网，但要让用户一眼看到。
+	h := c.app.Health()
+	if h.FallbackActive {
+		badC.Fprintln(c.out, "  ⚠ 代理源异常 · 已临时切到直连（LAN 设备不会断网，但不再走代理）")
+		badC.Fprintf(c.out, "    原因: %s\n", h.LastError)
+		dimC.Fprintln(c.out, "    修复后会自动切回；想立刻重试去「换代理源 → T 重新测试」")
+	}
+
 	admin, _ := c.app.Plat.IsAdmin()
 	if !admin {
 		dimC.Fprintln(c.out, "  （未用 sudo；看状态、改配置都不需要；启动时才需要）")
@@ -543,40 +554,45 @@ func (c *consoleUI) saveAndMaybeReload(ctx context.Context, okMsg string) {
 }
 
 func (c *consoleUI) screenSource(ctx context.Context) {
+	// 进菜单先并发探测一次。后续只有按 T 或改了配置才重新探测，
+	// 避免每次菜单循环都去重复测（订阅 URL 能慢到 5-10 秒）。
+	probes := c.probeAllSources(ctx, c.app.Cfg)
 	for {
 		c.banner("换代理源")
 		fmt.Fprintf(c.out, "  当前: %s\n\n", sourceLabel(c.app.Cfg.Source.Type))
-		fmt.Fprintln(c.out, "  1  单点代理          主机+端口（含认证）")
-		fmt.Fprintln(c.out, "  2  机场订阅          粘 URL")
-		fmt.Fprintln(c.out, "  3  本地配置文件      .yaml 绝对路径")
-		fmt.Fprintln(c.out, "  4  暂不配置          全部直连")
+		fmt.Fprintf(c.out, "  1  单点代理        %s\n", probes.single)
+		fmt.Fprintf(c.out, "  2  机场订阅        %s\n", probes.subscription)
+		fmt.Fprintf(c.out, "  3  本地配置文件    %s\n", probes.file)
+		fmt.Fprintln(c.out, "  4  暂不配置        全部直连（无须测试）")
 		fmt.Fprintln(c.out)
 		// 切换节点只对 subscription / file 有意义（单点代理只有一个 Upstream）
 		if c.app.Cfg.Source.Type == config.SourceTypeSubscription ||
 			c.app.Cfg.Source.Type == config.SourceTypeFile {
-			fmt.Fprintln(c.out, "  N  切换节点          从订阅/文件里挑分组+节点")
+			fmt.Fprintln(c.out, "  N  切换节点        从订阅/文件里挑分组+节点")
 		}
-		fmt.Fprintln(c.out, "  T  测试连通性         试试当前源能不能用")
+		fmt.Fprintln(c.out, "  T  重新测试        再跑一次连通性测试")
 		dimC.Fprintln(c.out, "  0  返回主菜单（或按 Q）")
 
 		choice := strings.ToLower(c.prompt("选择：> "))
-		reload := true // 换源后通常要 save+reload
+		changed := false // 是否改动了 config（需要 save+reload 并重新探测）
 		switch choice {
 		case "1":
 			c.configureSingle()
+			changed = true
 		case "2":
 			c.configureSubscription()
+			changed = true
 		case "3":
 			c.configureFile()
+			changed = true
 		case "4":
 			c.app.Cfg.Source.Type = config.SourceTypeNone
+			changed = true
 		case "n":
 			c.screenSwitchNode(ctx)
-			reload = false // 切节点走 API，不需要 Save
 			continue
 		case "t":
-			c.testSourceConnectivity(ctx)
-			reload = false
+			probes = c.probeAllSources(ctx, c.app.Cfg)
 			continue
 		case "0", "q", "":
 			return
@@ -584,7 +600,7 @@ func (c *consoleUI) screenSource(ctx context.Context) {
 			warnC.Fprintln(c.out, "无效选项，按 0 或 Q 返回")
 			continue
 		}
-		if !reload {
+		if !changed {
 			continue
 		}
 		if err := c.app.Save(); err != nil {
@@ -600,20 +616,105 @@ func (c *consoleUI) screenSource(ctx context.Context) {
 		} else {
 			okC.Fprintln(c.out, "已保存（下次 start 生效）")
 		}
+		// 配置改了就顺手重测一次
+		probes = c.probeAllSources(ctx, c.app.Cfg)
 	}
 }
 
-// testSourceConnectivity 跑一次 source.Test，把结果用中文告诉用户。
-func (c *consoleUI) testSourceConnectivity(ctx context.Context) {
-	fmt.Fprintln(c.out, "\n测试当前源……")
-	ctx2, cancel := context.WithTimeout(ctx, 15*time.Second)
+// sourceProbes 是三类可配置源的「摘要 + ✓/✗」结果，在「换代理源」菜单
+// 的每一行右侧呈现。未配置的返回「（未配置）」。
+type sourceProbes struct {
+	single, subscription, file string
+}
+
+// probeAllSources 并发探测 external/remote、subscription、file。
+// 5 秒 hard deadline 包干，避免订阅慢拖住菜单。
+// 探测期间临时在 stdout 打一行「测试中…」做视觉反馈，完事擦掉。
+func (c *consoleUI) probeAllSources(ctx context.Context, cfg *config.Config) sourceProbes {
+	dimC.Fprintln(c.out, "  测试中……")
+	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	if err := source.Test(ctx2, c.app.Cfg.Source); err != nil {
-		badC.Fprintf(c.out, "  ✗ 不通：%v\n", err)
-	} else {
-		okC.Fprintln(c.out, "  ✓ 可达")
+	var r sourceProbes
+	var wg sync.WaitGroup
+	wg.Add(3)
+	go func() { defer wg.Done(); r.single = probeSingle(probeCtx, cfg) }()
+	go func() { defer wg.Done(); r.subscription = probeSubscription(probeCtx, cfg) }()
+	go func() { defer wg.Done(); r.file = probeFile(cfg) }()
+	wg.Wait()
+	return r
+}
+
+// probeSingle 优先看 Remote（有认证那个），没有就看 External。
+// 两个都空 → 未配置。有配置就当场 TCP dial 测。
+func probeSingle(ctx context.Context, cfg *config.Config) string {
+	switch {
+	case cfg.Source.Remote.Server != "" && cfg.Source.Remote.Port > 0:
+		r := cfg.Source.Remote
+		sum := fmt.Sprintf("%s:%d %s", r.Server, r.Port, r.Kind)
+		if r.Username != "" {
+			sum += " 带认证"
+		}
+		err := source.Test(ctx, config.SourceConfig{Type: config.SourceTypeRemote, Remote: r})
+		return padRight(sum, 32) + probeMark(err)
+	case cfg.Source.External.Server != "" && cfg.Source.External.Port > 0:
+		e := cfg.Source.External
+		sum := fmt.Sprintf("%s:%d %s", e.Server, e.Port, e.Kind)
+		err := source.Test(ctx, config.SourceConfig{Type: config.SourceTypeExternal, External: e})
+		return padRight(sum, 32) + probeMark(err)
 	}
-	c.pause()
+	return dimC.Sprint("（未配置）")
+}
+
+func probeSubscription(ctx context.Context, cfg *config.Config) string {
+	s := cfg.Source.Subscription
+	if s.URL == "" {
+		return dimC.Sprint("（未配置）")
+	}
+	sum := truncate(s.URL, 30)
+	err := source.Test(ctx, config.SourceConfig{Type: config.SourceTypeSubscription, Subscription: s})
+	return padRight(sum, 32) + probeMark(err)
+}
+
+func probeFile(cfg *config.Config) string {
+	p := cfg.Source.File.Path
+	if p == "" {
+		return dimC.Sprint("（未配置）")
+	}
+	err := source.Test(context.Background(), config.SourceConfig{Type: config.SourceTypeFile, File: cfg.Source.File})
+	return padRight(truncate(p, 30), 32) + probeMark(err)
+}
+
+// probeMark 把 error 格式化成 ✓ / ✗ 简要原因，不超过 40 字。
+func probeMark(err error) string {
+	if err == nil {
+		return okC.Sprint("✓")
+	}
+	msg := err.Error()
+	if len(msg) > 40 {
+		msg = msg[:37] + "…"
+	}
+	return badC.Sprint("✗ " + msg)
+}
+
+// truncate 把字符串按字节数裁到 n，溢出加 …。
+// 英文路径/URL 场景下字节 ≈ 字符，不用处理宽字符。
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	if n <= 1 {
+		return "…"
+	}
+	return s[:n-1] + "…"
+}
+
+// padRight 把字符串右填空格到指定宽度。ANSI 色码让 fmt 的 %-Ns 宽度失准，
+// 所以自己算。这里不考虑已含 ANSI（probe 摘要都是纯文本），没问题。
+func padRight(s string, n int) string {
+	if len(s) >= n {
+		return s
+	}
+	return s + strings.Repeat(" ", n-len(s))
 }
 
 // screenSwitchNode 让用户在 mihomo 当前加载的 proxy-groups 里挑分组、挑节点。

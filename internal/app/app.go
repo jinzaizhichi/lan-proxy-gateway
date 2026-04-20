@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/tght/lan-proxy-gateway/internal/config"
@@ -22,6 +23,10 @@ type App struct {
 	Engine  *engine.Engine
 	Gateway *gateway.Gateway
 	Plat    platform.Platform
+
+	// health 是代理源 supervisor 维护的健康看板；由 StartSupervisor 懒启动。
+	health         *healthState
+	supervisorOnce sync.Once
 }
 
 // New builds an App. It loads the config from disk; if missing, it returns one

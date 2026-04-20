@@ -112,6 +112,31 @@ func (c *Client) SelectNode(ctx context.Context, group, node string) error {
 	return nil
 }
 
+// SetMode switches mihomo's traffic mode live (rule / global / direct) via the
+// /configs endpoint. Used by the source supervisor to fall back to direct when
+// the upstream source is dead, then restore the user's chosen mode when it
+// comes back.
+func (c *Client) SetMode(ctx context.Context, mode string) error {
+	body := strings.NewReader(fmt.Sprintf(`{"mode":%q}`, mode))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, c.baseURL+"/configs", body)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.secret != "" {
+		req.Header.Set("Authorization", "Bearer "+c.secret)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("set mode %s: HTTP %d", mode, resp.StatusCode)
+	}
+	return nil
+}
+
 // ReloadConfig asks mihomo to reload its config from disk.
 func (c *Client) ReloadConfig(ctx context.Context, path string) error {
 	body := strings.NewReader(fmt.Sprintf(`{"path":%q}`, path))
