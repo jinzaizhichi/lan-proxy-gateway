@@ -7,7 +7,7 @@
 
 > **把电脑变成局域网代理网关** —— 让不方便装代理 App 的设备（Switch / PS5 / Apple TV / 智能电视 / 手机）**改个网关 + DNS** 就能科学上网。
 
-面向**非编程玩家**：一键安装、3 步配置向导、全程中文菜单。
+面向**非编程玩家**：一键安装、引导式向导、全中文菜单、内嵌 `metacubexd` Web 控制台（浏览器切节点 / 改规则 / 看流量）。
 
 ---
 
@@ -59,10 +59,9 @@ flowchart LR
     end
 
     subgraph Sources["🌐 代理来源（任选）"]
-        E["本机已有代理<br/>127.0.0.1:7890<br/>(Clash Verge 等)"]
-        SUB["订阅链接<br/>(机场)"]
-        F["Clash 配置文件<br/>.yaml"]
-        R["远程单点代理<br/>socks5 / http"]
+        E["单点代理<br/>本机 / 远程<br/>(含认证)"]
+        SUB["机场订阅<br/>URL + inline 规则"]
+        F["本地配置文件<br/>Clash/mihomo .yaml"]
     end
 
     Devices -- "网关 + DNS<br/>改为电脑 IP" --> Host
@@ -95,11 +94,11 @@ flowchart TB
     end
 
     subgraph L3["【拓展】source.*"]
-        P1[external<br/>本机已有端口]
-        P2[subscription<br/>订阅链接]
-        P3[file<br/>Clash 配置]
-        P4[remote<br/>远程单点]
-        P5[none<br/>不配置]
+        P1[单点代理<br/>本机+远程合并]
+        P2[机场订阅<br/>inline 全部规则]
+        P3[本地配置文件<br/>本地 .yaml]
+        P4[全局扩展脚本<br/>Clash Verge 同款]
+        P5[不配置<br/>纯直连]
     end
 
     L1 --> L2 --> L3
@@ -112,68 +111,73 @@ flowchart TB
 | 层级 | 能力 | 配置键 |
 |---|---|---|
 | **主功能** | LAN 网关（IP 转发 + TUN + DNS） | `gateway.*` |
-| **副功能** | 流量控制（规则 / 全局 / 直连 + 广告拦截） | `traffic.*` |
-| **拓展** | 代理端口（本机已有 / 订阅 / 文件 / 远程 / 无） | `source.*` |
+| **副功能** | 分流 & 规则（规则 / 全局 / 直连 + 广告拦截 + 自定义规则） | `traffic.*` |
+| **拓展** | 代理 & 订阅（单点 / 订阅 / 本地文件 / 无） + 全局扩展脚本 | `source.*` |
 
 ---
 
 ## 📋 首次配置向导
 
+网关、TUN、DNS、规则模式、广告拦截都给了推荐默认值（`curl | bash` 装完自动用），唯一需要问用户的就是**代理源**：
+
 ```
-步骤 1 / 3  局域网网关
-──────────────────────────────────
-  启用 LAN 共享网关？(Y/n)
-  启用 TUN？           (Y/n)    ← 让 Switch/PS5 也能走代理的关键
-  启用 DNS 代理？      (Y/n)
-
-步骤 2 / 3  流量控制模式
-──────────────────────────────────
-  1) 规则模式 (推荐)    国内直连 + 国外代理
-  2) 全局模式           全部走代理
-  3) 直连模式           不代理，仅 LAN 共享
-  开启广告拦截？ (Y/n)
-
-步骤 3 / 3  代理端口来源
-──────────────────────────────────
-  1) 本机已有代理端口   ← 已经在跑 Clash Verge 的用户选这个
-  2) 订阅链接           填入机场 URL
-  3) Clash 配置文件     选本地 .yaml
-  4) 远程单点代理       socks5 / http
-  5) 暂不配置
+把流量转发到哪里？
+  1) 单点代理        (填 主机+端口；本机 Clash Verge / 远程机场的单个节点都走这个)
+  2) 机场订阅        (粘一个订阅 URL，网关自己抓节点列表)
+  3) 本地配置文件    (指向一个 .yaml；格式和机场订阅一致，只是本地)
+  4) 暂不配置        (全部走直连，以后再来)
 ```
 
-向导结束后会写入 `~/.config/lan-proxy-gateway/gateway.yaml`（Windows 在 `%APPDATA%\lan-proxy-gateway\`），并打印设备接入指引。
+之后向导问「要不要开机自启」（默认 Y，自动装 launchd / systemd / schtasks），配置写入 `~/.config/lan-proxy-gateway/gateway.yaml`（Windows 在 `%APPDATA%\lan-proxy-gateway\`），打印接入指引后退回 shell，mihomo 在后台跑。之后想调整任何东西，`sudo gateway` 进主菜单。
 
 ---
 
-## 📱 让其他设备接入
+## 📱 让其他设备接入 · 两种方式
 
-把设备的：
+### 方式 1 · TUN 网关（Switch / PS5 / Apple TV / 智能电视）
 
-- **网关 (Gateway)** 改成运行 `gateway` 的电脑的**局域网 IP**
-- **DNS 服务器** 改成**同一个 IP**
+这些设备只能填网关 + DNS，不能填代理。
 
-保存后重连网络即可。
+- **网关 (Gateway)** → 电脑的局域网 IP
+- **DNS 服务器** → 同一个 IP
+- 子网掩码 → `255.255.255.0`
+- 保存并重连 Wi-Fi，所有流量（YouTube / 游戏 / App）自动走代理。
 
-> ### ⚠️ 前提一：TUN 必须开启
->
-> 光改网关让流量"流经电脑"还不够 —— 电脑默认只做**普通路由转发**，Switch/PS5 照样被墙。
-> **TUN 才是劫持并让流量走代理的关键**。
->
-> 因此本项目 TUN 默认开启，不建议关闭。
-> 只有当你**仅给手机/电脑用、并愿意手动填代理服务器 = 本机IP:7890**时才能关 TUN —— 这种场景下 Switch/PS5 接入不了代理。
->
-> ### ⚠️ 前提二：DNS 代理
->
-> | 场景 | 设备的 DNS 设置 |
-> |---|---|
-> | 本机 DNS 代理【开】（默认） | 指向本机 IP（省事） |
-> | 本机 DNS 代理【关】（如 Clash Verge 已占 :53） | 可继续指向本机 IP（由占用方回答），或改成 `114.114.114.114` |
-> | 本机 DNS 代理关 **且** 本机 :53 没人接管 | 设备必须单独设一个能用的 DNS，否则**完全断网** |
->
-> TUN 模式下关 DNS 会让 fake-ip 失效，劫持可能不完整。不确定就保持默认开着。
+### 方式 2 · 局域网代理（iPhone / 电脑 App / 浏览器插件）
+
+这些地方可以手动填代理服务器。
+
+- **代理服务器** → 电脑的局域网 IP
+- **端口** → `17890`（HTTP + SOCKS5 混合）
+- 类型 HTTP / SOCKS5 任选，无需用户名密码
+
+**差异**：方式 1 劫持所有流量（哪怕 Switch 不支持代理也能走）；方式 2 只走 App 自己发到代理的流量（Switch 填了也没用）。
+
+详细接入指引可以运行 `sudo gateway` → `1 设备接入指引` 看。
+
+### 💡 关键背景
+
+- 方式 1 **依赖 TUN 开启** —— 光改网关让流量"流经电脑"还不够，电脑默认只做普通路由转发，Switch / PS5 照样被墙；**TUN 才是劫持并让流量走代理的关键**。本项目 TUN 默认开启，不建议关。
+- 方式 1 **依赖 DNS 代理开启**（端口 53）—— 否则 fake-ip 失效，TUN auto-route 劫持可能不全面。如果本机 53 端口被占（比如已开着 Clash Verge），可以在「分流 & 规则 → 9 高级」里关掉 gateway 的 DNS 代理，由那个占用方接管 53。
+- 方式 2 **跟 TUN / DNS 无关**，直接走 mihomo 的 HTTP+SOCKS5 混合端口（默认 `17890`，避开了 Clash 的 7890 防冲突）。
 
 ---
+
+## 🌐 Web 控制台（内嵌 metacubexd）
+
+用订阅 / 本地文件源时，浏览器打开：
+
+```
+http://<本机 IP>:19090/ui/
+```
+
+`metacubexd` dist 已经打包进 gateway binary，启动自动释放到 mihomo workdir，开箱即用。能做的事：
+
+- 切换代理组 / 节点、测延迟、查连接实时数据
+- 改模式、改规则、改 DNS
+- 看日志流
+
+主菜单 `3 代理 & 订阅` 底部会展示本机 + 局域网的可达 URL（带 ✓ 连通性检查），点一下就能用。
 
 ## 🖥️ 常用命令
 
@@ -181,11 +185,11 @@ flowchart TB
 
 | 命令 | 作用 |
 |---|---|
-| `gateway` | 进入主菜单（或 3 步向导） |
-| `gateway install` | 下载 mihomo + 首次向导 |
-| `gateway start` | 非交互启动（供系统服务调用） |
+| `gateway` | 进入主菜单（或首次配置向导） |
+| `gateway install` | 下载 mihomo + 引导式向导 + 启动 + 问开机自启 |
+| `gateway start` | 非交互启动（默认后台；`--foreground` 给 launchd/systemd 用） |
 | `gateway stop` | 停止 |
-| `gateway status` | 一次性输出当前状态 |
+| `gateway status` | 一次性输出当前状态 + 接入指引 |
 | `gateway service install` | 安装为开机自启（launchd / systemd / schtasks） |
 | `gateway service uninstall` | 卸载系统服务 |
 | `gateway service status` | 查看服务状态 |
@@ -227,14 +231,14 @@ traffic:
     lan_direct: true
 
 source:
-  type: external        # external | subscription | file | remote | none
+  type: external        # external | subscription | file | remote | none（external/remote UI 统一呈现为「单点代理」）
   external:
     server: 127.0.0.1
-    port: 7890
+    port: 7890          # 本机 Clash Verge 之类的上游端口
     kind: http          # http | socks5
 
 runtime:
-  ports: { mixed: 7890, redir: 7892, api: 9090 }
+  ports: { mixed: 17890, redir: 17892, api: 19090 }   # 避开 Clash 默认 7890/7892/9090
 ```
 
 v1 配置会在首次加载时自动升级到 v2 并打印迁移报告。
@@ -254,21 +258,25 @@ make test-core       # 仅跑核心包测试（更快）
 make build-all       # 交叉编译 darwin / linux / windows
 ```
 
-### 目录结构（v2）
+### 目录结构（v3.1）
 
 ```
 cmd/              cobra 入口（5 个命令）
 internal/
-  app/            统一门面：console + cobra 都调这里
-  gateway/        【主】LAN 网关
-  traffic/        【副】流量控制 + 内置规则集
-  source/         【拓展】代理源（external/subscription/file/remote/none）
-  engine/         mihomo 进程 + 渲染 + REST API
-  config/         v2 schema + v1 迁移
+  app/            统一门面：console + cobra 都调这里；含 supervisor（代理源自愈）
+  gateway/        【主】LAN 网关 + 设备接入指引
+  traffic/        【副】分流 & 规则 + 内置规则集 + 自定义规则合并
+  source/         【拓展】代理源 inline（external/subscription/file/remote/none）+ 连通性测试
+  engine/         mihomo 进程 + 渲染 + REST API（含 GroupDelay / SetMode）
+  script/         goja 脚本执行器
+    presets/      内嵌脚本预设（链式代理 · 住宅 IP 落地）
+  config/         v3 schema（向下兼容 v1/v2）
   platform/       跨平台（darwin/linux/windows）
-  console/        菜单式交互
+  console/        菜单式交互 + 日志易读视图
   mihomo/         下载 mihomo 内核
-embed/            mihomo yaml 模板
+embed/
+  template.yaml   mihomo config 模板
+  webui/          内嵌 metacubexd dist（2.2 MB）
 legacy/v1/        v1 源码留档（不参与编译）
 ```
 
