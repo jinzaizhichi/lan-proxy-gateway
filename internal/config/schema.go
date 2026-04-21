@@ -63,14 +63,33 @@ type RulesetToggles struct {
 
 // SourceConfig is the proxy source (the "extension" feature).
 type SourceConfig struct {
-	Type         string               `yaml:"type"` // external | subscription | file | remote | none
-	External     ExternalProxy        `yaml:"external"`
-	Subscription SubscriptionSource   `yaml:"subscription"`
-	File         FileSource           `yaml:"file"`
-	Remote       RemoteProxy          `yaml:"remote"`
-	ScriptPath   string               `yaml:"script_path"`
-	Profiles     []Profile            `yaml:"profiles"`
-	Current      string               `yaml:"current"`
+	Type         string             `yaml:"type"` // external | subscription | file | remote | none
+	External     ExternalProxy      `yaml:"external"`
+	Subscription SubscriptionSource `yaml:"subscription"`
+	File         FileSource         `yaml:"file"`
+	Remote       RemoteProxy        `yaml:"remote"`
+	// ScriptPath 是用户自定义 .js 文件的绝对路径（高级用户用）。
+	// 如果同时设置了 ChainResidential，会优先用 ChainResidential 渲染出的预设脚本。
+	ScriptPath string `yaml:"script_path"`
+	// ChainResidential 非 nil 时，render 阶段会用 preset 模板生成链式代理脚本，
+	// 覆盖 ScriptPath 指向渲染后的文件。字段为空时不启用链式代理。
+	ChainResidential *ChainResidentialConfig `yaml:"chain_residential,omitempty"`
+	Profiles         []Profile               `yaml:"profiles"`
+	Current          string                  `yaml:"current"`
+}
+
+// ChainResidentialConfig 是「链式代理 · 住宅 IP 落地」预设需要的用户填写字段。
+// 用 gateway 主菜单 → 换代理源 → S 增强脚本 → 预设向导交互式填写即可。
+// 对应脚本会把订阅的机场节点组合成「🛫 AI起飞节点」，
+// 把这里的住宅 IP 节点组合成「🛬 AI落地节点」，然后用 dialer-proxy 串成链式代理。
+type ChainResidentialConfig struct {
+	Name        string `yaml:"name"`         // 节点名（会出现在菜单节点列表里），例: "🏠 住宅IP-美国"
+	Kind        string `yaml:"kind"`         // "http" | "socks5"
+	Server      string `yaml:"server"`       // 主机
+	Port        int    `yaml:"port"`         // 端口
+	Username    string `yaml:"username"`     // 可空
+	Password    string `yaml:"password"`     // 可空
+	DialerProxy string `yaml:"dialer_proxy"` // 链式代理第一跳组名，默认 "🛫 AI起飞节点"
 }
 
 // ExternalProxy points to a proxy port already running on localhost.

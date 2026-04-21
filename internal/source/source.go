@@ -14,13 +14,16 @@ import (
 	"strings"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/tght/lan-proxy-gateway/internal/config"
 )
 
 // Fragment is the materialized YAML block inserted into mihomo's config.
 type Fragment struct {
-	YAML    string // starts with "proxies:" or "proxy-providers:" etc.
-	Summary string // human-readable label ("订阅 · 96 nodes" / "本机 127.0.0.1:7890")
+	YAML    string   // starts with "proxies:" or "proxy-providers:" etc.
+	Rules   []string // user-supplied rules (订阅/文件 inline 出来的，engine 会 prepend 到 base rules 前)
+	Summary string   // human-readable label ("订阅 · 96 nodes" / "本机 127.0.0.1:7890")
 }
 
 // Materialize produces the Fragment for this source config.
@@ -112,14 +115,14 @@ func singleProxyFragment(proxyYaml string) string {
 }
 
 // --- subscription: fetch and inline ---
-
+//
+// 把订阅 yaml 下载到 workdir 做备份（方便调试 / 下次启动离线用），
+// 但真正给 mihomo 的是 inline 的 proxies + proxy-groups + rules。
 func materializeSubscription(ctx context.Context, s config.SubscriptionSource, workDir string) (Fragment, error) {
-	// Download once per start. We don't poll; user can click "refresh" in the TUI.
-	providerFile := "subscription.yaml"
 	if err := os.MkdirAll(workDir, 0o755); err != nil {
 		return Fragment{}, err
 	}
-	dst := workDir + "/" + providerFile
+	dst := filepath.Join(workDir, "subscription.yaml")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.URL, nil)
 	if err != nil {
 		return Fragment{}, fmt.Errorf("build request: %w", err)
@@ -138,22 +141,22 @@ func materializeSubscription(ctx context.Context, s config.SubscriptionSource, w
 	if err != nil {
 		return Fragment{}, fmt.Errorf("read subscription: %w", err)
 	}
-	if err := os.WriteFile(dst, data, 0o600); err != nil {
-		return Fragment{}, err
+	_ = os.WriteFile(dst, data, 0o600)
+
+	frag, err := inlineUserYAML(data)
+	if err != nil {
+		return Fragment{}, fmt.Errorf("解析订阅 yaml: %w", err)
 	}
-	return Fragment{
-		YAML:    renderProviderBlock(dst, "http", s.URL),
-		Summary: fmt.Sprintf("订阅 · %s", s.Name),
-	}, nil
+	frag.Summary = fmt.Sprintf("订阅 · %s", s.Name)
+	return frag, nil
 }
 
-// --- file: load local Clash config ---
+// --- file: load local Clash/mihomo YAML ---
 //
-// mihomo 出于安全要求，proxy-provider 的 path 必须是 mihomo workdir 的子路径
-// （否则报 "path is not subpath of home directory or SAFE_PATHS"）。用户填的
-// 本地 yaml 几乎都在 workdir 外面（比如 ~/Documents/xxx.yaml），所以这里先
-// 复制到 workdir/subscription.yaml，再让 render 出来的 proxy-provider 指向
-// 这个副本。和 subscription 的落盘策略对齐。
+// 以前用 proxy-provider 加载，但 mihomo 的 provider 只读 proxies: 字段，
+// 用户 yaml 里自己的 proxy-groups 和 rules 会被整体扔掉。所以这里改成
+// inline：读 yaml → 提 proxies + proxy-groups + rules → 直接嵌进最终
+// mihomo config.yaml。script enhancer 和「切换节点」菜单都能看到完整内容。
 func materializeFile(f config.FileSource, workDir string) (Fragment, error) {
 	info, err := os.Stat(f.Path)
 	if err != nil {
@@ -162,49 +165,94 @@ func materializeFile(f config.FileSource, workDir string) (Fragment, error) {
 	if info.IsDir() {
 		return Fragment{}, fmt.Errorf("本地配置文件必须是文件，不是目录: %s", f.Path)
 	}
-	if err := os.MkdirAll(workDir, 0o755); err != nil {
-		return Fragment{}, fmt.Errorf("创建 workdir: %w", err)
-	}
 	data, err := os.ReadFile(f.Path)
 	if err != nil {
 		return Fragment{}, fmt.Errorf("读不了 %s: %w", f.Path, err)
 	}
-	dst := filepath.Join(workDir, "subscription.yaml")
-	if err := os.WriteFile(dst, data, 0o600); err != nil {
-		return Fragment{}, fmt.Errorf("写入 %s: %w", dst, err)
+	frag, err := inlineUserYAML(data)
+	if err != nil {
+		return Fragment{}, fmt.Errorf("解析 %s: %w", f.Path, err)
 	}
+	frag.Summary = fmt.Sprintf("本地文件 · %s", f.Path)
+	return frag, nil
+}
+
+// inlineUserYAML 从 Clash/mihomo 订阅 yaml 抽出 proxies / proxy-groups / rules
+// 三块，其他字段（mode / dns / tun / port / external-controller 之类顶层配置）
+// 一律丢弃 —— 它们由 lan-proxy-gateway 的 base template 自己渲染。
+//
+// 如果用户 yaml 里没有「Proxy」组，补一个 select 组指向 DIRECT，让 base rules
+// 里的 `MATCH,Proxy`（rule 模式兜底）不会挂。
+func inlineUserYAML(data []byte) (Fragment, error) {
+	var doc struct {
+		Proxies     []yaml.Node `yaml:"proxies"`
+		ProxyGroups []yaml.Node `yaml:"proxy-groups"`
+		Rules       []string    `yaml:"rules"`
+	}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return Fragment{}, err
+	}
+
+	// 检查用户是否有 Proxy 组
+	hasProxyGroup := false
+	for _, g := range doc.ProxyGroups {
+		name := groupNameFromNode(g)
+		if name == "Proxy" {
+			hasProxyGroup = true
+			break
+		}
+	}
+
+	extract := map[string]interface{}{}
+	if len(doc.Proxies) > 0 {
+		extract["proxies"] = doc.Proxies
+	}
+	if len(doc.ProxyGroups) > 0 {
+		extract["proxy-groups"] = doc.ProxyGroups
+	}
+	out, err := yaml.Marshal(extract)
+	if err != nil {
+		return Fragment{}, err
+	}
+	yamlStr := string(out)
+
+	// 没 Proxy 组就 append 一个兜底（挑第一个 select/urltest 组或 DIRECT）
+	if !hasProxyGroup {
+		fallback := firstGroupName(doc.ProxyGroups)
+		if fallback == "" {
+			fallback = "DIRECT"
+		}
+		yamlStr += fmt.Sprintf("  - name: Proxy\n    type: select\n    proxies:\n      - %s\n      - DIRECT\n", fallback)
+	}
+
 	return Fragment{
-		YAML:    renderProviderBlock(dst, "file", ""),
-		Summary: fmt.Sprintf("本地文件 · %s", f.Path),
+		YAML:  yamlStr,
+		Rules: doc.Rules,
 	}, nil
 }
 
-func renderProviderBlock(path, kind, url string) string {
-	var b strings.Builder
-	b.WriteString("proxy-providers:\n")
-	b.WriteString("  subscription:\n")
-	if kind == "http" {
-		b.WriteString(fmt.Sprintf("    type: http\n    url: %q\n    interval: 3600\n    path: %q\n", url, path))
-	} else {
-		b.WriteString(fmt.Sprintf("    type: file\n    path: %q\n", path))
+// groupNameFromNode 从 yaml.Node（映射）里抽出 name 字段，失败返回 ""。
+func groupNameFromNode(n yaml.Node) string {
+	if n.Kind != yaml.MappingNode {
+		return ""
 	}
-	b.WriteString(`    health-check:
-      enable: true
-      url: http://www.gstatic.com/generate_204
-      interval: 300
-proxy-groups:
-  - name: Proxy
-    type: select
-    use: [subscription]
-    proxies: [Auto, DIRECT]
-  - name: Auto
-    type: url-test
-    use: [subscription]
-    url: http://www.gstatic.com/generate_204
-    interval: 300
-    tolerance: 50
-`)
-	return b.String()
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		k := n.Content[i]
+		v := n.Content[i+1]
+		if k.Value == "name" && v.Kind == yaml.ScalarNode {
+			return v.Value
+		}
+	}
+	return ""
+}
+
+func firstGroupName(groups []yaml.Node) string {
+	for _, g := range groups {
+		if n := groupNameFromNode(g); n != "" {
+			return n
+		}
+	}
+	return ""
 }
 
 // --- none: only DIRECT available ---

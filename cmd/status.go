@@ -28,7 +28,7 @@ var statusCmd = &cobra.Command{
 		fmt.Printf("  端口:   mixed=%d  api=%d  redir=%d\n", s.Ports.Mixed, s.Ports.API, s.Ports.Redir)
 		fmt.Printf("  mihomo: %s\n", firstNonEmpty(s.MihomoBin, "(未找到)"))
 		fmt.Println()
-		fmt.Println(gateway.DeviceGuide(s.Gateway))
+		fmt.Println(gateway.DeviceGuide(s.Gateway, s.Ports.Mixed))
 		return nil
 	},
 }

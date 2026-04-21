@@ -89,6 +89,41 @@ func (c *Client) ListProxyGroups(ctx context.Context) ([]ProxyGroup, error) {
 	return out, nil
 }
 
+// GroupDelay 让 mihomo 并发测一个 group 里所有节点的延迟。
+// testURL 是测试目标（常用 http://www.gstatic.com/generate_204 / http://cp.cloudflare.com）。
+// timeoutMs 单节点超时。
+// 返回 map: 节点名 → 延迟 ms（0 = 超时或拒绝）。
+func (c *Client) GroupDelay(ctx context.Context, group, testURL string, timeoutMs int) (map[string]int, error) {
+	q := fmt.Sprintf("?url=%s&timeout=%d",
+		strings.ReplaceAll(testURL, " ", "%20"),
+		timeoutMs,
+	)
+	escapedGroup := strings.ReplaceAll(group, " ", "%20")
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		c.baseURL+"/group/"+escapedGroup+"/delay"+q, nil)
+	if err != nil {
+		return nil, err
+	}
+	if c.secret != "" {
+		req.Header.Set("Authorization", "Bearer "+c.secret)
+	}
+	// 给整组测速留足时间：timeout 单节点 + 网络抖动 + 序列化
+	client := &http.Client{Timeout: time.Duration(timeoutMs+3000) * time.Millisecond}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("group delay %s: HTTP %d", group, resp.StatusCode)
+	}
+	var out map[string]int
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SelectNode picks a node inside a group.
 func (c *Client) SelectNode(ctx context.Context, group, node string) error {
 	body := strings.NewReader(fmt.Sprintf(`{"name":%q}`, node))

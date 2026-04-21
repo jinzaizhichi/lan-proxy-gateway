@@ -3,13 +3,40 @@ package engine
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
 
+	embedpkg "github.com/tght/lan-proxy-gateway/embed"
 	configpkg "github.com/tght/lan-proxy-gateway/internal/config"
 	"github.com/tght/lan-proxy-gateway/internal/mihomo"
 )
+
+// deployWebUI 把 go:embed 进来的 embed/webui/* 释放到 workdir/ui/ 下。
+// 覆盖已有文件（用户升级 binary 后 UI 也同步升），但保留 workdir/ui 里
+// 用户额外放的文件（例如 metacubexd 整个目录）。
+func deployWebUI(workDir string) error {
+	uiRoot := filepath.Join(workDir, "ui")
+	return fs.WalkDir(embedpkg.WebUI, "webui", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel("webui", path)
+		if rel == "." {
+			return os.MkdirAll(uiRoot, 0o755)
+		}
+		dst := filepath.Join(uiRoot, rel)
+		if d.IsDir() {
+			return os.MkdirAll(dst, 0o755)
+		}
+		data, err := fs.ReadFile(embedpkg.WebUI, path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(dst, data, 0o644)
+	})
+}
 
 // Engine wraps the mihomo process + its REST API. One instance per running gateway.
 type Engine struct {
@@ -129,20 +156,13 @@ func (e *Engine) Stop() error {
 	return e.proc.Stop()
 }
 
-// Reload re-renders the config and asks mihomo to reload via API.
-// If the API is unreachable, it falls back to a process restart.
+// Reload 重新渲染 config 并重启 mihomo。
+//
+// 以前走 API /configs reload（快、不断流），但 mihomo 的 API reload **不更新
+// 顶级项** —— external-ui / external-controller / tun / dns.listen 这些都要
+// 进程重启才生效。用户从菜单点「重启」后发现 UI 不通、端口没换，体验很差。
+// 统一走 Stop+Start 简单可靠，代价是 LAN 设备断流 1-2 秒。
 func (e *Engine) Reload(ctx context.Context, cfg *configpkg.Config) error {
-	data, err := Render(ctx, cfg, e.workdir)
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(e.ConfigPath(), data, 0o600); err != nil {
-		return err
-	}
-	if err := e.api.ReloadConfig(ctx, e.ConfigPath()); err == nil {
-		return nil
-	}
-	// API failed; restart.
 	_ = e.Stop()
 	return e.Start(ctx, cfg)
 }

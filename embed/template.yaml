@@ -11,6 +11,10 @@ ipv6: false
 unified-delay: true
 
 external-controller: 0.0.0.0:{{API_PORT}}
+# 浏览器访问 http://<host>:<api_port>/ui 打开 Web 控制台。
+# UI 静态文件放在 mihomo workdir/ui 下（metacubexd / yacd 都可）。
+# 目录不存在时 /ui 返回 404，但 API 本体不受影响。
+external-ui: ui
 external-controller-cors:
   allow-origins:
     - "*"
@@ -28,6 +32,13 @@ dns:
     - "*.lan"
     - "*.local"
     - "localhost.ptlogin2.qq.com"
+  # 专门给代理服务器本身的域名用的 DNS。没这个的话当 Proxy 组的
+  # 节点是域名形式（例如 abc.example.com:443），mihomo 解析这个域名时
+  # 又要走 Proxy 组 → 自己等自己 → 死锁（日志里会看到大面积
+  # `dns resolve failed: context canceled`）。用国内 DNS IP 直接解。
+  proxy-server-nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
   nameserver:
     - 223.5.5.5
     - 119.29.29.29

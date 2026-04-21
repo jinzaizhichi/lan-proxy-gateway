@@ -19,7 +19,9 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -196,7 +198,7 @@ func (c *consoleUI) onboard(ctx context.Context) error {
 	fmt.Fprintln(c.out, "    ✓ DNS 代理（端口 53）")
 	fmt.Fprintln(c.out, "    ✓ 规则模式（国内直连 + 国外代理）")
 	fmt.Fprintln(c.out, "    ✓ 广告拦截")
-	dimC.Fprintln(c.out, "    （以上都能在主菜单→流量控制 里随时改）")
+	dimC.Fprintln(c.out, "    （以上都能在主菜单→分流 & 规则 里随时改）")
 	fmt.Fprintln(c.out)
 
 	// 唯一需要用户决策的：代理端口来源
@@ -286,20 +288,108 @@ func (c *consoleUI) configureSingle() {
 	}
 }
 
-// configureScript 让用户设置 / 清空增强脚本路径。
-// 留空视作「清空」（同 Clash Verge Rev 关掉 Script）。
-// 脚本会在 render 完 final config.yaml 之后执行一次，签名固定 main(config) -> config。
+// configureScript 分三路：预设（链式代理向导）/ 自定义 .js 路径 / 清除。
+// 预设会把用户填的住宅 IP 实例化到 workdir 的模板脚本，不用自己写 JS。
 func (c *consoleUI) configureScript() {
-	fmt.Fprintln(c.out, "\n  增强脚本：在最终 mihomo config 上跑一次 JS（function main(config){...return config;}）")
-	fmt.Fprintln(c.out, "  填入 .js 绝对路径。直接回车 = 不使用脚本 / 清除当前脚本。")
-	path := c.ask("  脚本路径", c.app.Cfg.Source.ScriptPath)
-	path = strings.TrimSpace(path)
-	if path == "" {
-		c.app.Cfg.Source.ScriptPath = ""
-		okC.Fprintln(c.out, "  已清除增强脚本")
+	for {
+		c.banner("全局扩展脚本")
+		// 当前状态
+		state := "未配置"
+		if c.app.Cfg.Source.ChainResidential != nil {
+			r := c.app.Cfg.Source.ChainResidential
+			state = fmt.Sprintf("预设 · 链式代理（住宅 IP %s:%d %s）", r.Server, r.Port, r.Kind)
+		} else if c.app.Cfg.Source.ScriptPath != "" {
+			state = "自定义脚本 · " + c.app.Cfg.Source.ScriptPath
+		}
+		fmt.Fprintf(c.out, "  当前：%s\n\n", state)
+		fmt.Fprintln(c.out, "  1  预设 · 链式代理（住宅 IP 落地）")
+		dimC.Fprintln(c.out, "      填订阅节点先走机场，再链到住宅 IP 出国；AI 域名自动走住宅 IP")
+		fmt.Fprintln(c.out, "  2  自定义 .js 文件路径")
+		dimC.Fprintln(c.out, "      Clash Verge Rev 同款 main(config) 脚本")
+		fmt.Fprintln(c.out, "  3  清除当前脚本")
+		fmt.Fprintln(c.out)
+		titleC.Fprintln(c.out, "  ── 操作 ── 0 返回（或按 Q）")
+		switch strings.ToLower(c.prompt("选择：> ")) {
+		case "1":
+			c.configureScriptResidentialChain()
+			return
+		case "2":
+			c.configureScriptCustomPath()
+			return
+		case "3":
+			c.app.Cfg.Source.ScriptPath = ""
+			c.app.Cfg.Source.ChainResidential = nil
+			okC.Fprintln(c.out, "  已清除全局扩展脚本")
+			return
+		case "0", "q", "":
+			return
+		default:
+			warnC.Fprintln(c.out, "无效选项")
+		}
+	}
+}
+
+// configureScriptResidentialChain 引导用户填住宅 IP 节点字段，然后写入配置。
+// 脚本本身会在 render 时从内嵌模板实例化到 workdir，用户不用碰 JS 代码。
+func (c *consoleUI) configureScriptResidentialChain() {
+	cur := c.app.Cfg.Source.ChainResidential
+	defName, defKind, defServer, defPort, defUser, defPass := "🏠 住宅IP", "socks5", "", 0, "", ""
+	if cur != nil {
+		defName = firstNonEmpty(cur.Name, defName)
+		defKind = firstNonEmpty(cur.Kind, defKind)
+		defServer = cur.Server
+		defPort = cur.Port
+		defUser = cur.Username
+		defPass = cur.Password
+	}
+
+	fmt.Fprintln(c.out, "\n  请填写住宅 IP 落地节点（最终流量经机场 → 住宅 IP 出国）：")
+	name := c.ask("  节点名称", defName)
+	kind := strings.ToLower(c.ask("  类型 (http / socks5)", defKind))
+	if kind != "http" && kind != "socks5" {
+		kind = "socks5"
+	}
+	server := c.ask("  服务器地址", defServer)
+	if server == "" {
+		warnC.Fprintln(c.out, "  服务器地址不能为空，取消")
 		return
 	}
-	// 文件是否存在先检查一下，避免用户输错后默默失败
+	portStr := c.ask("  端口", strconv.Itoa(firstNonZero(defPort, 443)))
+	port, err := strconv.Atoi(strings.TrimSpace(portStr))
+	if err != nil || port <= 0 || port > 65535 {
+		warnC.Fprintln(c.out, "  端口无效，取消")
+		return
+	}
+	user := c.ask("  用户名（无需认证回车）", defUser)
+	pass := defPass
+	if user != "" {
+		pass = c.ask("  密码", defPass)
+	}
+
+	c.app.Cfg.Source.ChainResidential = &config.ChainResidentialConfig{
+		Name:        name,
+		Kind:        kind,
+		Server:      server,
+		Port:        port,
+		Username:    user,
+		Password:    pass,
+		DialerProxy: "🛫 AI起飞节点",
+	}
+	// 预设会接管 ScriptPath，清掉用户自定义路径避免混乱。
+	c.app.Cfg.Source.ScriptPath = ""
+	okC.Fprintf(c.out, "  ✓ 已保存链式代理预设（%s:%d %s），下次 start/reload 生效\n", server, port, kind)
+}
+
+// configureScriptCustomPath 让用户填自定义 .js 路径（高级用法）。
+func (c *consoleUI) configureScriptCustomPath() {
+	fmt.Fprintln(c.out, "\n  填入 .js 绝对路径。直接回车 = 清除。")
+	path := strings.TrimSpace(c.ask("  脚本路径", c.app.Cfg.Source.ScriptPath))
+	if path == "" {
+		c.app.Cfg.Source.ScriptPath = ""
+		c.app.Cfg.Source.ChainResidential = nil
+		okC.Fprintln(c.out, "  已清除全局扩展脚本")
+		return
+	}
 	if _, err := os.Stat(path); err != nil {
 		warnC.Fprintf(c.out, "  ⚠ 找不到 %s: %v\n", path, err)
 		if !c.yesNo("  仍要保存这个路径？", false) {
@@ -307,7 +397,8 @@ func (c *consoleUI) configureScript() {
 		}
 	}
 	c.app.Cfg.Source.ScriptPath = path
-	okC.Fprintf(c.out, "  已设置增强脚本: %s\n", path)
+	c.app.Cfg.Source.ChainResidential = nil
+	okC.Fprintf(c.out, "  已设置自定义脚本: %s\n", path)
 }
 
 func (c *consoleUI) configureSubscription() {
@@ -395,9 +486,9 @@ func (c *consoleUI) drawMainMenu() {
 	c.banner("LAN 代理网关")
 	c.printStatus()
 	fmt.Fprintln(c.out)
-	fmt.Fprintln(c.out, "  1  设备接入指引        Switch / PS5 / 手机怎么连到这里")
-	fmt.Fprintln(c.out, "  2  流量控制            模式 / TUN / 广告拦截 / 高级")
-	fmt.Fprintln(c.out, "  3  换代理源")
+	fmt.Fprintln(c.out, "  1  设备接入指引      Switch / PS5 / 手机怎么连到这里")
+	fmt.Fprintln(c.out, "  2  分流 & 规则        国内直连 / 国外走代理 / 广告拦截 / TUN 开关")
+	fmt.Fprintln(c.out, "  3  代理 & 订阅        换代理 · 切节点 · 连通测试 · 全局扩展脚本")
 	fmt.Fprintln(c.out, "  4  启动 / 重启 / 停止")
 	fmt.Fprintln(c.out, "  5  看日志")
 	fmt.Fprintln(c.out, "  6  关闭 gateway 并退出（停 mihomo）")
@@ -431,7 +522,7 @@ func (c *consoleUI) printStatus() {
 	if h.FallbackActive {
 		badC.Fprintln(c.out, "  ⚠ 代理源异常 · 已临时切到直连（LAN 设备不会断网，但不再走代理）")
 		badC.Fprintf(c.out, "    原因: %s\n", h.LastError)
-		dimC.Fprintln(c.out, "    修复后会自动切回；想立刻重试去「换代理源 → T 重新测试」")
+		dimC.Fprintln(c.out, "    修复后会自动切回；想立刻重试去「代理 & 订阅 → T 重新测试」")
 	}
 
 	admin, _ := c.app.Plat.IsAdmin()
@@ -467,25 +558,28 @@ func sourceLabel(s string) string {
 // --- Screens ---
 
 func (c *consoleUI) screenGateway() {
-	c.banner("网关状态 / 设备接入指引")
+	c.banner("设备接入指引")
 	_ = c.app.Gateway.Detect()
-	fmt.Fprintln(c.out, gateway.DeviceGuide(c.app.Status().Gateway))
+	fmt.Fprintln(c.out, gateway.DeviceGuide(c.app.Status().Gateway, c.app.Cfg.Runtime.Ports.Mixed))
 	c.pause()
 }
 
 func (c *consoleUI) screenTraffic(ctx context.Context) {
 	for {
-		c.banner("流量控制")
+		c.banner("分流 & 规则")
 		cfg := c.app.Cfg
-		fmt.Fprintf(c.out, "  模式: %s   TUN: %s   广告拦截: %s\n\n",
+		fmt.Fprintf(c.out, "  模式 %s  ·  TUN %s  ·  广告拦截 %s  ·  自定义规则 %d\n\n",
 			cfg.Traffic.Mode,
 			onOff(cfg.Gateway.TUN.Enabled),
-			onOff(cfg.Traffic.Adblock))
+			onOff(cfg.Traffic.Adblock),
+			len(cfg.Traffic.Extras.Direct)+len(cfg.Traffic.Extras.Proxy)+len(cfg.Traffic.Extras.Reject))
 		fmt.Fprintln(c.out, "  1  切换模式     rule=国内直连+国外代理（推荐）/ global=全走代理 / direct=全直连")
 		fmt.Fprintln(c.out, "  2  开关 TUN     （Switch/PS5 等能走代理的关键，一般别动）")
 		fmt.Fprintln(c.out, "  3  开关广告拦截")
-		dimC.Fprintln(c.out, "  9  高级设置     （DNS 开关 / 端口冲突调整，日常不用来）")
-		dimC.Fprintln(c.out, "  0  返回主菜单（或按 Q）")
+		fmt.Fprintln(c.out, "  4  自定义规则   直连 / 代理 / 拒绝 三组（优先级最高，盖过内置 china_direct 等）")
+		dimC.Fprintln(c.out, "  9  高级设置     （DNS 开关 / 端口调整，端口冲突时才来）")
+		fmt.Fprintln(c.out)
+		titleC.Fprintln(c.out, "  ── 操作 ── 0 返回主菜单（或按 Q）")
 		switch c.prompt("选择：> ") {
 		case "1":
 			fmt.Fprintln(c.out, "  1) rule    规则模式（推荐）")
@@ -530,6 +624,8 @@ func (c *consoleUI) screenTraffic(ctx context.Context) {
 			if err := c.app.ToggleAdblock(ctx); err != nil {
 				badC.Fprintln(c.out, err.Error())
 			}
+		case "4":
+			c.screenCustomRules(ctx)
 		case "9":
 			c.screenTrafficAdvanced(ctx)
 		case "0", "q", "Q", "":
@@ -540,20 +636,158 @@ func (c *consoleUI) screenTraffic(ctx context.Context) {
 	}
 }
 
+// screenCustomRules 管理用户自定义规则（config.Traffic.Extras 的 Direct/Proxy/Reject）。
+// 这些规则在 traffic.Render 里**最先**被 emit，优先级高过所有内置 ruleset。
+func (c *consoleUI) screenCustomRules(ctx context.Context) {
+	type item struct {
+		verdict string // DIRECT / PROXY / REJECT
+		rule    string
+	}
+	for {
+		c.banner("自定义规则")
+		ex := &c.app.Cfg.Traffic.Extras
+		dimC.Fprintln(c.out, "  规则越靠上优先级越高。mihomo 先扫自定义，再扫内置 china_direct / adblock 等。")
+		dimC.Fprintln(c.out, "  常见类型：DOMAIN-SUFFIX / DOMAIN / DOMAIN-KEYWORD / IP-CIDR / PROCESS-NAME")
+		fmt.Fprintln(c.out)
+
+		var listed []item
+		dump := func(group string, list []string, verdict string) {
+			titleC.Fprintf(c.out, "  [%s] (%d)\n", group, len(list))
+			if len(list) == 0 {
+				dimC.Fprintln(c.out, "    (无)")
+				return
+			}
+			for _, r := range list {
+				listed = append(listed, item{verdict, r})
+				fmt.Fprintf(c.out, "    %2d  %s\n", len(listed), r)
+			}
+		}
+		dump("直连", ex.Direct, "DIRECT")
+		dump("走代理", ex.Proxy, "PROXY")
+		dump("拒绝", ex.Reject, "REJECT")
+
+		fmt.Fprintln(c.out)
+		titleC.Fprint(c.out, "  ── 操作 ── ")
+		fmt.Fprintln(c.out, "A 添加一条   D <编号> 删除某条   0 返回")
+		input := strings.ToLower(strings.TrimSpace(c.prompt("选择：> ")))
+
+		switch {
+		case input == "" || input == "0" || input == "q":
+			return
+		case input == "a":
+			c.addCustomRule(ctx)
+		case strings.HasPrefix(input, "d"):
+			// 兼容 "d 3" 和 "d3"
+			numStr := strings.TrimSpace(strings.TrimPrefix(input, "d"))
+			idx, err := strconv.Atoi(numStr)
+			if err != nil || idx < 1 || idx > len(listed) {
+				warnC.Fprintln(c.out, "无效编号（格式: d 3 或 d3）")
+				continue
+			}
+			target := listed[idx-1]
+			c.deleteCustomRule(ctx, target.verdict, target.rule)
+		default:
+			warnC.Fprintln(c.out, "无效操作（A 添加 / D <编号> 删除 / 0 返回）")
+		}
+	}
+}
+
+// addCustomRule 引导式添加一条自定义规则。
+func (c *consoleUI) addCustomRule(ctx context.Context) {
+	fmt.Fprintln(c.out, "\n  匹配类型：")
+	fmt.Fprintln(c.out, "    1) DOMAIN-SUFFIX      xx.com 以及所有子域（最常用）")
+	fmt.Fprintln(c.out, "    2) DOMAIN              完整域名精确匹配")
+	fmt.Fprintln(c.out, "    3) DOMAIN-KEYWORD      包含关键字的域名")
+	fmt.Fprintln(c.out, "    4) IP-CIDR             1.2.3.0/24 这种网段")
+	fmt.Fprintln(c.out, "    5) PROCESS-NAME        按本机进程名匹配（如 Cursor）")
+	fmt.Fprintln(c.out, "    6) 手写完整规则        自己拼 TYPE,TARGET[,modifier]")
+	kindChoice := c.ask("请选择 1-6", "1")
+	kindMap := map[string]string{
+		"1": "DOMAIN-SUFFIX",
+		"2": "DOMAIN",
+		"3": "DOMAIN-KEYWORD",
+		"4": "IP-CIDR",
+		"5": "PROCESS-NAME",
+	}
+	var rule string
+	if kind, ok := kindMap[kindChoice]; ok {
+		target := strings.TrimSpace(c.ask(fmt.Sprintf("  %s 的匹配目标", kind), ""))
+		if target == "" {
+			warnC.Fprintln(c.out, "  匹配目标为空，取消")
+			return
+		}
+		rule = kind + "," + target
+	} else {
+		rule = strings.TrimSpace(c.ask("  完整规则（不带 verdict）", ""))
+		if rule == "" {
+			warnC.Fprintln(c.out, "  规则为空，取消")
+			return
+		}
+	}
+
+	fmt.Fprintln(c.out, "\n  命中后去向：")
+	fmt.Fprintln(c.out, "    1) 直连 DIRECT")
+	fmt.Fprintln(c.out, "    2) 走代理 Proxy")
+	fmt.Fprintln(c.out, "    3) 拒绝 REJECT")
+	verdict := c.ask("请选择 1-3", "2")
+
+	ex := &c.app.Cfg.Traffic.Extras
+	var label string
+	switch verdict {
+	case "1":
+		ex.Direct = append(ex.Direct, rule)
+		label = "DIRECT"
+	case "3":
+		ex.Reject = append(ex.Reject, rule)
+		label = "REJECT"
+	default:
+		ex.Proxy = append(ex.Proxy, rule)
+		label = "Proxy"
+	}
+	c.saveAndMaybeReload(ctx, fmt.Sprintf("  ✓ 已加规则：%s → %s", rule, label))
+}
+
+// deleteCustomRule 删除命中的某条。
+func (c *consoleUI) deleteCustomRule(ctx context.Context, verdict, rule string) {
+	remove := func(list []string) []string {
+		out := list[:0]
+		removed := false
+		for _, r := range list {
+			if !removed && r == rule {
+				removed = true
+				continue
+			}
+			out = append(out, r)
+		}
+		return out
+	}
+	ex := &c.app.Cfg.Traffic.Extras
+	switch verdict {
+	case "DIRECT":
+		ex.Direct = remove(ex.Direct)
+	case "PROXY":
+		ex.Proxy = remove(ex.Proxy)
+	case "REJECT":
+		ex.Reject = remove(ex.Reject)
+	}
+	c.saveAndMaybeReload(ctx, fmt.Sprintf("  ✓ 已删：%s", rule))
+}
+
 // screenTrafficAdvanced 收纳普通用户基本不需要碰的开关：DNS 代理开关、
 // DNS 监听端口、mixed 端口、API 端口。99% 场景下来这里只是为了解端口冲突。
 func (c *consoleUI) screenTrafficAdvanced(ctx context.Context) {
 	for {
-		c.banner("流量控制 · 高级（端口冲突时才来）")
+		c.banner("分流 & 规则 · 高级（端口冲突时才来）")
 		cfg := c.app.Cfg
-		fmt.Fprintf(c.out, "  DNS 代理: %s (监听端口 %d)   mixed: %d   API: %d\n\n",
+		fmt.Fprintf(c.out, "  DNS 代理 %s (端口 %d)  ·  mixed %d  ·  API %d\n\n",
 			onOff(cfg.Gateway.DNS.Enabled), cfg.Gateway.DNS.Port,
 			cfg.Runtime.Ports.Mixed, cfg.Runtime.Ports.API)
-		fmt.Fprintln(c.out, "  1  开关 DNS 代理           （本机 53 端口被 Clash Verge 等占用时关掉）")
-		fmt.Fprintln(c.out, "  2  修改 DNS 监听端口        （默认 53；改了 LAN 设备就基本解析不了，不建议动）")
-		fmt.Fprintln(c.out, "  3  修改 mixed 端口          （HTTP+SOCKS5，默认 17890，避开了 Clash 7890）")
-		fmt.Fprintln(c.out, "  4  修改 API 端口            （默认 19090，避开了 Clash 9090）")
-		dimC.Fprintln(c.out, "  0  返回（或按 Q）")
+		fmt.Fprintln(c.out, "  1  开关 DNS 代理        （本机 53 端口被 Clash Verge 等占用时关掉）")
+		fmt.Fprintln(c.out, "  2  修改 DNS 监听端口    （默认 53；改了 LAN 设备就基本解析不了，不建议动）")
+		fmt.Fprintln(c.out, "  3  修改 mixed 端口      （HTTP+SOCKS5，默认 17890，避开 Clash 7890；也是局域网代理端口）")
+		fmt.Fprintln(c.out, "  4  修改 API 端口        （默认 19090，避开 Clash 9090；Web 控制台也走这个）")
+		fmt.Fprintln(c.out)
+		titleC.Fprintln(c.out, "  ── 操作 ── 0 返回（或按 Q）")
 		switch c.prompt("选择：> ") {
 		case "1":
 			// 关 DNS 是有重大后果的操作，必须讲清楚 LAN 设备会变啥样。
@@ -669,25 +903,70 @@ func (c *consoleUI) screenSource(ctx context.Context) {
 	// 避免每次菜单循环都去重复测（订阅 URL 能慢到 5-10 秒）。
 	probes := c.probeAllSources(ctx, c.app.Cfg)
 	for {
-		c.banner("换代理源")
-		fmt.Fprintf(c.out, "  当前: %s\n\n", sourceLabel(c.app.Cfg.Source.Type))
-		fmt.Fprintf(c.out, "  1  单点代理        %s\n", probes.single)
-		fmt.Fprintf(c.out, "  2  机场订阅        %s\n", probes.subscription)
-		fmt.Fprintf(c.out, "  3  本地配置文件    %s\n", probes.file)
-		fmt.Fprintln(c.out, "  4  暂不配置        全部直连（无须测试）")
-		fmt.Fprintln(c.out)
-		// 切换节点只对 subscription / file 有意义（单点代理只有一个 Upstream）
+		c.banner("代理 & 订阅  ·  当前: " + sourceLabel(c.app.Cfg.Source.Type))
+
+		// 代理源选项：编号 / 图标 / 标签 / 值 四列对齐
+		renderRow := func(num, label string, p sourceSlot) {
+			iconStr := p.icon()
+			if iconStr == "" {
+				iconStr = dimC.Sprint("·")
+			}
+			fmt.Fprintf(c.out, "    %s  %-12s  %s  %s\n", num, label, iconStr, p.value)
+		}
+		renderRow("1", "单点代理", probes.single)
+		renderRow("2", "机场订阅", probes.subscription)
+		renderRow("3", "本地配置文件", probes.file)
+		renderRow("4", "暂不配置", sourceSlot{value: dimC.Sprint("全部走直连")})
+
+		// 订阅 / 本地文件源：展示可访问的 Web 控制台地址（本机 + LAN），
+		// 并发探测 /ui 可达性。UI 内嵌在 binary 里，一定能 serve，用户直接点就行。
 		if c.app.Cfg.Source.Type == config.SourceTypeSubscription ||
 			c.app.Cfg.Source.Type == config.SourceTypeFile {
-			fmt.Fprintln(c.out, "  N  切换节点        从订阅/文件里挑分组+节点")
+			apiPort := c.app.Cfg.Runtime.Ports.API
+			localIP := c.app.Status().Gateway.LocalIP
+			probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+			var wg sync.WaitGroup
+			var markLocal, markLAN string
+			wg.Add(2)
+			go func() {
+				defer wg.Done()
+				markLocal = probeHTTP(probeCtx, fmt.Sprintf("http://127.0.0.1:%d/ui/", apiPort))
+			}()
+			go func() {
+				defer wg.Done()
+				if localIP == "" {
+					markLAN = ""
+					return
+				}
+				markLAN = probeHTTP(probeCtx, fmt.Sprintf("http://%s:%d/ui/", localIP, apiPort))
+			}()
+			wg.Wait()
+			cancel()
+
+			fmt.Fprintln(c.out)
+			titleC.Fprintln(c.out, "  ── Web 控制台（浏览器打开，切节点 / 查流量 / 改规则）──")
+			urlLocal := fmt.Sprintf("http://127.0.0.1:%d/ui/", apiPort)
+			fmt.Fprintf(c.out, "    本机    %-36s  %s\n", urlLocal, markLocal)
+			if localIP != "" {
+				urlLAN := fmt.Sprintf("http://%s:%d/ui/", localIP, apiPort)
+				fmt.Fprintf(c.out, "    局域网  %-36s  %s  %s\n", urlLAN, markLAN, dimC.Sprint("（手机 / 平板也能用）"))
+			}
 		}
-		scriptDesc := dimC.Sprint("未配置")
-		if c.app.Cfg.Source.ScriptPath != "" {
-			scriptDesc = c.app.Cfg.Source.ScriptPath
+
+		// 操作按键：放最下面贴近 prompt，和其它页面一致
+		fmt.Fprintln(c.out)
+		titleC.Fprint(c.out, "  ── 操作 ── ")
+		ops := []string{}
+		if c.app.Cfg.Source.Type == config.SourceTypeSubscription ||
+			c.app.Cfg.Source.Type == config.SourceTypeFile {
+			ops = append(ops, "N 切换节点")
 		}
-		fmt.Fprintf(c.out, "  S  增强脚本        %s  （Clash Verge Rev 同款 main(config) 脚本）\n", scriptDesc)
-		fmt.Fprintln(c.out, "  T  重新测试        再跑一次连通性测试")
-		dimC.Fprintln(c.out, "  0  返回主菜单（或按 Q）")
+		scriptMark := ""
+		if c.app.Cfg.Source.ChainResidential != nil || c.app.Cfg.Source.ScriptPath != "" {
+			scriptMark = okC.Sprint(" ●")
+		}
+		ops = append(ops, "S 全局扩展脚本"+scriptMark, "T 重新测试", "0 返回")
+		fmt.Fprintln(c.out, strings.Join(ops, "   "))
 
 		choice := strings.ToLower(c.prompt("选择：> "))
 		changed := false // 是否改动了 config（需要 save+reload 并重新探测）
@@ -740,15 +1019,32 @@ func (c *consoleUI) screenSource(ctx context.Context) {
 	}
 }
 
-// sourceProbes 是三类可配置源的「摘要 + ✓/✗」结果，在「换代理源」菜单
-// 的每一行右侧呈现。未配置的返回「（未配置）」。
+// sourceSlot 是单个代理源在「换代理源」菜单里的一行数据。
+// icon() 负责 ✓/✗/· 三态；value 是人读的配置摘要（已做长度裁剪）。
+type sourceSlot struct {
+	value string // "127.0.0.1:6578 socks5" / "~/Documents/clash/long.yaml" / "(未配置)"
+	err   error  // nil=可达；非 nil=探测失败
+	empty bool   // true=未配置，不测，图标 ·
+}
+
+func (s sourceSlot) icon() string {
+	if s.empty {
+		return dimC.Sprint("·")
+	}
+	if s.err == nil {
+		return okC.Sprint("✓")
+	}
+	return badC.Sprint("✗")
+}
+
+// sourceProbes 是三类可配置源的并发探测结果。
 type sourceProbes struct {
-	single, subscription, file string
+	single, subscription, file sourceSlot
 }
 
 // probeAllSources 并发探测 external/remote、subscription、file。
 // 5 秒 hard deadline 包干，避免订阅慢拖住菜单。
-// 探测期间临时在 stdout 打一行「测试中…」做视觉反馈，完事擦掉。
+// 探测期间临时在 stdout 打一行「测试中…」做视觉反馈。
 func (c *consoleUI) probeAllSources(ctx context.Context, cfg *config.Config) sourceProbes {
 	dimC.Fprintln(c.out, "  测试中……")
 	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -764,8 +1060,8 @@ func (c *consoleUI) probeAllSources(ctx context.Context, cfg *config.Config) sou
 }
 
 // probeSingle 优先看 Remote（有认证那个），没有就看 External。
-// 两个都空 → 未配置。有配置就当场 TCP dial 测。
-func probeSingle(ctx context.Context, cfg *config.Config) string {
+// 两个都空 → 未配置。
+func probeSingle(ctx context.Context, cfg *config.Config) sourceSlot {
 	switch {
 	case cfg.Source.Remote.Server != "" && cfg.Source.Remote.Port > 0:
 		r := cfg.Source.Remote
@@ -773,34 +1069,83 @@ func probeSingle(ctx context.Context, cfg *config.Config) string {
 		if r.Username != "" {
 			sum += " 带认证"
 		}
-		err := source.Test(ctx, config.SourceConfig{Type: config.SourceTypeRemote, Remote: r})
-		return padRight(sum, 32) + probeMark(err)
+		return sourceSlot{value: sum, err: source.Test(ctx, config.SourceConfig{Type: config.SourceTypeRemote, Remote: r})}
 	case cfg.Source.External.Server != "" && cfg.Source.External.Port > 0:
 		e := cfg.Source.External
 		sum := fmt.Sprintf("%s:%d %s", e.Server, e.Port, e.Kind)
-		err := source.Test(ctx, config.SourceConfig{Type: config.SourceTypeExternal, External: e})
-		return padRight(sum, 32) + probeMark(err)
+		return sourceSlot{value: sum, err: source.Test(ctx, config.SourceConfig{Type: config.SourceTypeExternal, External: e})}
 	}
-	return dimC.Sprint("（未配置）")
+	return sourceSlot{value: dimC.Sprint("(未配置)"), empty: true}
 }
 
-func probeSubscription(ctx context.Context, cfg *config.Config) string {
+func probeSubscription(ctx context.Context, cfg *config.Config) sourceSlot {
 	s := cfg.Source.Subscription
 	if s.URL == "" {
-		return dimC.Sprint("（未配置）")
+		return sourceSlot{value: dimC.Sprint("(未配置)"), empty: true}
 	}
-	sum := truncate(s.URL, 30)
-	err := source.Test(ctx, config.SourceConfig{Type: config.SourceTypeSubscription, Subscription: s})
-	return padRight(sum, 32) + probeMark(err)
+	return sourceSlot{
+		value: truncateMiddle(s.URL, 50),
+		err:   source.Test(ctx, config.SourceConfig{Type: config.SourceTypeSubscription, Subscription: s}),
+	}
 }
 
-func probeFile(cfg *config.Config) string {
+func probeFile(cfg *config.Config) sourceSlot {
 	p := cfg.Source.File.Path
 	if p == "" {
-		return dimC.Sprint("（未配置）")
+		return sourceSlot{value: dimC.Sprint("(未配置)"), empty: true}
 	}
-	err := source.Test(context.Background(), config.SourceConfig{Type: config.SourceTypeFile, File: cfg.Source.File})
-	return padRight(truncate(p, 30), 32) + probeMark(err)
+	return sourceSlot{
+		value: homeAbbrev(p),
+		err:   source.Test(context.Background(), config.SourceConfig{Type: config.SourceTypeFile, File: cfg.Source.File}),
+	}
+}
+
+// homeAbbrev 把绝对路径里的 $HOME 替换成 ~，长度仍过长再 middle-truncate 保住文件名。
+func homeAbbrev(p string) string {
+	if home, err := os.UserHomeDir(); err == nil && strings.HasPrefix(p, home) {
+		p = "~" + p[len(home):]
+	}
+	return truncateMiddle(p, 50)
+}
+
+// truncateMiddle 过长时保留头尾，中间用 … 缩略（小白看得见盘根和文件名）。
+func truncateMiddle(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	if n < 6 {
+		return s[:n-1] + "…"
+	}
+	head := n / 2
+	tail := n - head - 1
+	return s[:head] + "…" + s[len(s)-tail:]
+}
+
+// probeHTTP 做一次 GET 并把结果格式化成 ✓ 200 / ⚠ HTTP 404 / ✗ 连接失败…
+// 给 Web 控制台地址的连通性提示用。
+func probeHTTP(ctx context.Context, url string) string {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return badC.Sprint("✗ " + err.Error())
+	}
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		msg := err.Error()
+		if len(msg) > 50 {
+			msg = msg[:47] + "…"
+		}
+		return badC.Sprint("✗ " + msg)
+	}
+	defer resp.Body.Close()
+	switch {
+	case resp.StatusCode == 200:
+		return okC.Sprint("✓")
+	case resp.StatusCode == 404:
+		return warnC.Sprint("⚠ 404")
+	default:
+		return badC.Sprintf("✗ %d", resp.StatusCode)
+	}
 }
 
 // probeMark 把 error 格式化成 ✓ / ✗ 简要原因，不超过 40 字。
@@ -861,11 +1206,12 @@ func (c *consoleUI) screenSwitchNode(ctx context.Context) {
 			return
 		}
 		for i, g := range groups {
-			fmt.Fprintf(c.out, "  %2d  %-20s  当前: %s  (共 %d 个节点)\n",
+			fmt.Fprintf(c.out, "  %2d  %-24s  当前: %-20s  (%d 节点)\n",
 				i+1, g.Name, g.Now, len(g.All))
 		}
-		dimC.Fprintln(c.out, "   0  返回（或按 Q）")
-		input := strings.ToLower(c.prompt("选分组：> "))
+		fmt.Fprintln(c.out)
+		titleC.Fprintln(c.out, "  ── 操作 ── <编号> 进分组选节点   0 返回（或按 Q）")
+		input := strings.ToLower(c.prompt("选择：> "))
 		if input == "0" || input == "" || input == "q" {
 			return
 		}
@@ -878,47 +1224,121 @@ func (c *consoleUI) screenSwitchNode(ctx context.Context) {
 	}
 }
 
-// screenSwitchNodeInGroup 展示一个分组里的所有节点，当前选中的加 ✓。
+// screenSwitchNodeInGroup 展示一个分组里的所有节点，带延迟测速和排序。
+// 进入时自动对整组测一遍，按延迟升序排列；用户可按 R 再测、按数字选节点。
 func (c *consoleUI) screenSwitchNodeInGroup(ctx context.Context, g engine.ProxyGroup) {
-	c.banner(fmt.Sprintf("分组：%s  (当前：%s)", g.Name, g.Now))
-	for i, n := range g.All {
-		prefix := "    "
-		if n == g.Now {
-			prefix = "  ✓ "
+	delays := map[string]int{}
+	testFailed := false
+
+	runDelay := func() {
+		testCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+		defer cancel()
+		d, err := c.app.Engine.API().GroupDelay(testCtx, g.Name,
+			"http://www.gstatic.com/generate_204", 3000)
+		if err != nil {
+			testFailed = true
+			return
 		}
-		fmt.Fprintf(c.out, "  %2d%s%s\n", i+1, prefix, n)
+		testFailed = false
+		delays = d
 	}
-	dimC.Fprintln(c.out, "   0  返回（或按 Q）")
-	input := strings.ToLower(c.prompt("选节点：> "))
-	if input == "0" || input == "" || input == "q" {
-		return
+
+	// 首次进入先同步测一遍
+	dimC.Fprintln(c.out, "\n  测速中……")
+	runDelay()
+
+	for {
+		c.banner(fmt.Sprintf("分组：%s  (当前：%s)", g.Name, g.Now))
+
+		// 按延迟升序排（0/超时的往后丢）
+		sorted := append([]string(nil), g.All...)
+		sort.SliceStable(sorted, func(i, j int) bool {
+			di, dj := delays[sorted[i]], delays[sorted[j]]
+			if di == 0 && dj == 0 {
+				return false
+			}
+			if di == 0 {
+				return false
+			}
+			if dj == 0 {
+				return true
+			}
+			return di < dj
+		})
+
+		if testFailed {
+			warnC.Fprintln(c.out, "  ⚠ 上一次整组测速失败（可能 mihomo API 版本不支持或网络问题）")
+		}
+		for i, n := range sorted {
+			mark := "  "
+			if n == g.Now {
+				mark = "✓ "
+			}
+			delayText := delayLabel(delays[n])
+			fmt.Fprintf(c.out, "  %2d  %s%-28s  %s\n", i+1, mark, n, delayText)
+		}
+
+		fmt.Fprintln(c.out)
+		titleC.Fprint(c.out, "  ── 操作 ── ")
+		fmt.Fprintln(c.out, "R 刷新测速   <编号> 切到该节点   0 返回")
+		input := strings.ToLower(strings.TrimSpace(c.prompt("选择：> ")))
+		switch {
+		case input == "" || input == "0" || input == "q":
+			return
+		case input == "r":
+			dimC.Fprintln(c.out, "  测速中……")
+			runDelay()
+		default:
+			idx, err := strconv.Atoi(input)
+			if err != nil || idx < 1 || idx > len(sorted) {
+				warnC.Fprintln(c.out, "无效选项（按数字选节点 / R 刷新 / 0 返回）")
+				continue
+			}
+			node := sorted[idx-1]
+			ctx2, cancel := context.WithTimeout(ctx, 5*time.Second)
+			if err := c.app.Engine.API().SelectNode(ctx2, g.Name, node); err != nil {
+				cancel()
+				badC.Fprintf(c.out, "切换失败：%v\n", err)
+			} else {
+				cancel()
+				okC.Fprintf(c.out, "已切换 %s → %s\n", g.Name, node)
+				g.Now = node
+			}
+		}
 	}
-	idx, err := strconv.Atoi(input)
-	if err != nil || idx < 1 || idx > len(g.All) {
-		warnC.Fprintln(c.out, "无效选项")
-		return
+}
+
+// delayLabel 把毫秒格式化成带颜色的 "234 ms" / "超时" / "—"。
+func delayLabel(ms int) string {
+	switch {
+	case ms <= 0:
+		return dimC.Sprint("—")
+	case ms < 300:
+		return okC.Sprintf("%4d ms", ms)
+	case ms < 1000:
+		return warnC.Sprintf("%4d ms", ms)
+	default:
+		return badC.Sprintf("%4d ms", ms)
 	}
-	node := g.All[idx-1]
-	ctx2, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	if err := c.app.Engine.API().SelectNode(ctx2, g.Name, node); err != nil {
-		badC.Fprintf(c.out, "切换失败：%v\n", err)
-	} else {
-		okC.Fprintf(c.out, "已切换 %s → %s\n", g.Name, node)
-	}
-	c.pause()
 }
 
 func (c *consoleUI) screenLifecycle(ctx context.Context) {
-	c.banner("生命周期")
+	c.banner("启动 / 重启 / 停止")
+	s := c.app.Status()
+	runStatus := dimC.Sprint("○ 未启动")
+	if s.Running {
+		runStatus = okC.Sprint("● 运行中")
+	}
+	fmt.Fprintf(c.out, "  当前状态: %s\n\n", runStatus)
 	fmt.Fprintln(c.out, "  1  启动")
-	fmt.Fprintln(c.out, "  2  重启 (热重载)")
-	fmt.Fprintln(c.out, "  3  停止")
-	fmt.Fprintln(c.out, "  4  清理残留 mihomo 进程 (端口被占用时用)")
-	dimC.Fprintln(c.out, "  0  返回主菜单（或按 Q）")
+	fmt.Fprintln(c.out, "  2  重启              （等同停止 + 启动，让新配置完整生效）")
+	fmt.Fprintln(c.out, "  3  停止              （mihomo 结束，LAN 设备走直连）")
+	fmt.Fprintln(c.out, "  4  清理残留 mihomo   （端口被占用时用，会杀掉系统里所有 mihomo 进程）")
+	fmt.Fprintln(c.out)
+	titleC.Fprintln(c.out, "  ── 操作 ── 0 返回主菜单（或按 Q）")
 	admin, _ := c.app.Plat.IsAdmin()
 	if !admin {
-		warnC.Fprintln(c.out, "  （未用 sudo 运行，启动/停止/清理会失败，请先用 sudo gateway）")
+		warnC.Fprintln(c.out, "  （未用 sudo 运行，启动/停止/清理会失败，请先 sudo gateway）")
 	}
 	switch c.prompt("选择：> ") {
 	case "1":

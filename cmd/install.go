@@ -79,7 +79,7 @@ var installCmd = &cobra.Command{
 			color.Red("  ✗ 启动失败:")
 			fmt.Println(indent("    ", fmt.Sprintf("%v", startErr)))
 			color.Yellow("\n不用怕，已把你带到【主菜单】，在里面就能修。")
-			color.New(color.Faint).Println("  • 选 2 流量控制 → 可关掉 DNS（最常见的端口冲突）")
+			color.New(color.Faint).Println("  • 选 2 分流 & 规则 → 9 高级 → 可关掉 DNS（最常见的端口冲突）")
 			color.New(color.Faint).Println("  • 修好后选 4 生命周期 → 1 启动  即可再次尝试")
 			color.New(color.Faint).Println("  • 任何时候按 Q 退出，不想改了直接关窗口也行")
 			fmt.Println()
