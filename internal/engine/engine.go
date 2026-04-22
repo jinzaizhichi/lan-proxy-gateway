@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
 	"time"
 
 	embedpkg "github.com/tght/lan-proxy-gateway/embed"
@@ -16,22 +18,32 @@ import (
 // deployWebUI 把 go:embed 进来的 embed/webui/* 释放到 workdir/ui/ 下。
 // 覆盖已有文件（用户升级 binary 后 UI 也同步升），但保留 workdir/ui 里
 // 用户额外放的文件（例如 metacubexd 整个目录）。
+//
+// embed.FS 的路径永远是 forward-slash（`webui/_nuxt/xxx.js`），不能用
+// filepath.Rel —— 在 Windows 上 filepath.Rel 按反斜杠逻辑处理，混合分隔
+// 符会产出像 `..\webui\_nuxt\xxx.js` 的错结果，悄悄把文件写到 workdir
+// 外，/ui/ 就成了空目录。用 path.Clean + strings.TrimPrefix 明确走
+// forward-slash 分支，最后 filepath.FromSlash 转成本地分隔符再落盘。
 func deployWebUI(workDir string) error {
+	const root = "webui"
 	uiRoot := filepath.Join(workDir, "ui")
-	return fs.WalkDir(embedpkg.WebUI, "webui", func(path string, d fs.DirEntry, err error) error {
+	return fs.WalkDir(embedpkg.WebUI, root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		rel, _ := filepath.Rel("webui", path)
-		if rel == "." {
+		if p == root {
 			return os.MkdirAll(uiRoot, 0o755)
 		}
-		dst := filepath.Join(uiRoot, rel)
+		rel := strings.TrimPrefix(path.Clean(p), root+"/")
+		dst := filepath.Join(uiRoot, filepath.FromSlash(rel))
 		if d.IsDir() {
 			return os.MkdirAll(dst, 0o755)
 		}
-		data, err := fs.ReadFile(embedpkg.WebUI, path)
+		data, err := fs.ReadFile(embedpkg.WebUI, p)
 		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			return err
 		}
 		return os.WriteFile(dst, data, 0o644)

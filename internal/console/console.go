@@ -21,6 +21,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -564,7 +565,23 @@ func (c *consoleUI) screenGateway() {
 		_ = c.app.Gateway.Detect()
 		fmt.Fprint(c.out, gateway.DeviceGuide(c.app.Status().Gateway, c.app.Cfg.Runtime.Ports.Mixed))
 
-		// 方式 3 的状态灯 + 一键开关（macOS 实打实切；其它系统显示命令提示）
+		// Windows 下 TUN 已经接管本机出向流量，方式 3 不需要切 DNS；且
+		// SetLocalDNSToLoopback 在 Windows 上是 ErrNotSupported，按钮按下
+		// 只会报错。整块隐藏，避免跟上面指引里"TUN 已开，自动走 mihomo"
+		// 自相矛盾。
+		if runtime.GOOS == "windows" {
+			fmt.Fprintln(c.out)
+			titleC.Fprintln(c.out, "  ── 操作 ── 0 返回（或按 Q）")
+			switch strings.ToLower(strings.TrimSpace(c.prompt("选择：> "))) {
+			case "", "0", "q":
+				return
+			default:
+				warnC.Fprintln(c.out, "无效选项")
+			}
+			continue
+		}
+
+		// 方式 3 的状态灯 + 一键开关（macOS 实打实切；Linux 显示命令提示）
 		isLoopback, _ := c.app.Plat.LocalDNSIsLoopback()
 		if isLoopback {
 			okC.Fprintln(c.out, "\n  ● 本机 DNS 已指向 127.0.0.1（方式 3 已生效）")
@@ -572,7 +589,7 @@ func (c *consoleUI) screenGateway() {
 			dimC.Fprintln(c.out, "\n  ○ 本机 DNS 未指向 127.0.0.1（方式 3 未生效）")
 		}
 		fmt.Fprintln(c.out)
-		titleC.Fprintln(c.out, "  ── 操作 ── L 本机 DNS 切到 127.0.0.1   R 恢复默认   0 返回")
+		titleC.Fprintln(c.out, "  ── 操作 ── L 本机 DNS 切到 127.0.0.1   R 恢复默认   0 返回（或按 Q）")
 
 		switch strings.ToLower(strings.TrimSpace(c.prompt("选择：> "))) {
 		case "l":
@@ -709,7 +726,7 @@ func (c *consoleUI) screenCustomRules(ctx context.Context) {
 
 		fmt.Fprintln(c.out)
 		titleC.Fprint(c.out, "  ── 操作 ── ")
-		fmt.Fprintln(c.out, "A 添加一条   D <编号> 删除某条   0 返回")
+		fmt.Fprintln(c.out, "A 添加一条   D <编号> 删除某条   0 返回（或按 Q）")
 		input := strings.ToLower(strings.TrimSpace(c.prompt("选择：> ")))
 
 		switch {
@@ -1007,7 +1024,7 @@ func (c *consoleUI) screenSource(ctx context.Context) {
 		if c.app.Cfg.Source.ChainResidential != nil || c.app.Cfg.Source.ScriptPath != "" {
 			scriptMark = okC.Sprint(" ●")
 		}
-		ops = append(ops, "S 全局扩展脚本"+scriptMark, "T 重新测试", "0 返回")
+		ops = append(ops, "S 全局扩展脚本"+scriptMark, "T 重新测试", "0 返回（或按 Q）")
 		fmt.Fprintln(c.out, strings.Join(ops, "   "))
 
 		choice := strings.ToLower(c.prompt("选择：> "))
@@ -1361,7 +1378,7 @@ func (c *consoleUI) screenSwitchNodeInGroup(ctx context.Context, g engine.ProxyG
 
 		fmt.Fprintln(c.out)
 		titleC.Fprint(c.out, "  ── 操作 ── ")
-		fmt.Fprintln(c.out, "R 刷新测速   <编号> 切到该节点   0 返回")
+		fmt.Fprintln(c.out, "R 刷新测速   <编号> 切到该节点   0 返回（或按 Q）")
 		input := strings.ToLower(strings.TrimSpace(c.prompt("选择：> ")))
 		switch {
 		case input == "" || input == "0" || input == "q":

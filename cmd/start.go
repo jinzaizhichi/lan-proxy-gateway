@@ -20,7 +20,8 @@ var startCmd = &cobra.Command{
 	Long: `启动网关（默认后台运行）。
 
 默认: 起 mihomo 后立即返回 shell，mihomo 作为孤儿进程在后台跑；
-      之后用 sudo gateway 进主菜单，或 sudo gateway stop 停止。
+      之后运行 gateway 进主菜单，或 gateway stop 停止
+      （Linux/macOS 需 sudo 前缀）。
 --foreground: 阻塞当前终端直到 Ctrl+C 再 stop，给 launchd / systemd 用。`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		maybeElevate()
@@ -38,7 +39,7 @@ var startCmd = &cobra.Command{
 		color.New(color.Faint).Println(a.Engine.LogPath())
 
 		if !startForeground {
-			color.New(color.Faint).Println("mihomo 已在后台运行；进主菜单 sudo gateway，停止 sudo gateway stop。")
+			color.New(color.Faint).Printf("mihomo 已在后台运行；进主菜单 %s，停止 %s。\n", elevatedCmd(""), elevatedCmd("stop"))
 			return nil
 		}
 

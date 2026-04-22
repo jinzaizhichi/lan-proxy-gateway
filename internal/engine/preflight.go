@@ -49,7 +49,7 @@ func (e *PortConflictError) Error() string {
 		}
 		b.WriteString("\n")
 	}
-	b.WriteString("\n解决：\n  1) 在主菜单→流量控制里换一个端口\n  2) 或回到主菜单→启动/停止，选「清理残留 mihomo」")
+	b.WriteString("\n解决：\n  1) 主菜单 → 2 分流 & 规则 → 9 高级设置 里关 DNS 或换端口\n  2) 主菜单 → 4 启动 / 重启 / 停止 → 4 清理残留 mihomo（如果是残留的 mihomo 在占端口）")
 	return b.String()
 }
 
@@ -98,11 +98,11 @@ func CheckPorts(checks []PortCheck) error {
 	return &PortConflictError{Conflicts: conflicts}
 }
 
-// LookupPortOwner names the process holding a port via `lsof`, macOS/Linux only.
-// Returns nil if unknown.
+// LookupPortOwner names the process holding a port. Uses lsof on mac/linux,
+// netstat + tasklist on Windows. Returns nil if unknown.
 func LookupPortOwner(port int) *PortOwner {
 	if runtime.GOOS == "windows" {
-		return nil
+		return lookupPortOwnerWindows(port)
 	}
 	out, err := exec.Command("lsof", "-nP", "-iTCP:"+fmt.Sprint(port), "-sTCP:LISTEN").Output()
 	if err != nil || len(out) == 0 {
@@ -128,7 +128,7 @@ func LookupPortOwner(port int) *PortOwner {
 // so users can recover from prior crashes without knowing which ports.
 func FindStaleMihomoPIDs() []int {
 	if runtime.GOOS == "windows" {
-		return nil // TODO: tasklist equivalent
+		return findStaleMihomoPIDsWindows()
 	}
 	// pgrep is installed on mac + most linux distros.
 	out, err := exec.Command("pgrep", "-x", "mihomo").Output()
@@ -144,9 +144,14 @@ func FindStaleMihomoPIDs() []int {
 	return pids
 }
 
-// KillPID sends SIGTERM then SIGKILL as fallback. Requires privileges if the
-// target was started as root.
+// KillPID sends SIGTERM then SIGKILL as fallback on Unix. On Windows it shells
+// out to `taskkill /T /F` so child processes (mihomo's TUN worker) also die —
+// TerminateProcess alone leaves them dangling and the next start hits a port
+// conflict. Requires privileges if the target was started as root/Administrator.
 func KillPID(pid int) error {
+	if runtime.GOOS == "windows" {
+		return exec.Command("taskkill", "/PID", strconv.Itoa(pid), "/T", "/F").Run()
+	}
 	proc, err := os.FindProcess(pid)
 	if err != nil {
 		return err
@@ -161,6 +166,80 @@ func KillPID(pid int) error {
 		}
 	}
 	return proc.Kill()
+}
+
+// findStaleMihomoPIDsWindows enumerates mihomo.exe via `tasklist`. The output
+// comes back CSV-formatted: `"mihomo.exe","1234","Console","1","12,345 K"`.
+// When no matches exist, tasklist prints a locale-dependent info line (CJK on
+// Chinese Windows), so we filter by the image name rather than by error code.
+func findStaleMihomoPIDsWindows() []int {
+	out, err := exec.Command("tasklist", "/FI", "IMAGENAME eq mihomo.exe", "/FO", "CSV", "/NH").Output()
+	if err != nil {
+		return nil
+	}
+	output := strings.TrimSpace(string(out))
+	if !strings.Contains(strings.ToLower(output), "mihomo.exe") {
+		return nil
+	}
+	var pids []int
+	for _, line := range strings.Split(output, "\n") {
+		fields := strings.Split(strings.TrimSpace(line), ",")
+		if len(fields) < 2 {
+			continue
+		}
+		pidStr := strings.Trim(fields[1], "\" \r")
+		if pid, err := strconv.Atoi(pidStr); err == nil {
+			pids = append(pids, pid)
+		}
+	}
+	return pids
+}
+
+// lookupPortOwnerWindows uses `netstat -ano` to map port → PID, then
+// `tasklist` to resolve PID → image name.
+func lookupPortOwnerWindows(port int) *PortOwner {
+	out, err := exec.Command("netstat", "-ano", "-p", "TCP").Output()
+	if err != nil {
+		return nil
+	}
+	suffix := fmt.Sprintf(":%d", port)
+	for _, line := range strings.Split(string(out), "\n") {
+		if !strings.Contains(line, "LISTENING") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 5 {
+			continue
+		}
+		// fields[1] is the local address, e.g. "0.0.0.0:53" or "[::]:53".
+		if !strings.HasSuffix(fields[1], suffix) {
+			continue
+		}
+		pid, err := strconv.Atoi(fields[len(fields)-1])
+		if err != nil {
+			continue
+		}
+		return &PortOwner{Name: lookupProcessNameWindows(pid), PID: pid}
+	}
+	return nil
+}
+
+func lookupProcessNameWindows(pid int) string {
+	out, err := exec.Command("tasklist", "/FI", fmt.Sprintf("PID eq %d", pid), "/FO", "CSV", "/NH").Output()
+	if err != nil {
+		return ""
+	}
+	output := strings.TrimSpace(string(out))
+	if output == "" {
+		return ""
+	}
+	// CSV first field: "imagename.exe"
+	fields := strings.Split(output, ",")
+	if len(fields) < 1 {
+		return ""
+	}
+	name := strings.Trim(fields[0], "\" \r")
+	return strings.TrimSuffix(name, ".exe")
 }
 
 func isMihomo(name string) bool {

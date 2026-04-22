@@ -30,10 +30,15 @@ var installCmd = &cobra.Command{
 		if _, err := plat.ResolveMihomoPath(""); err != nil {
 			color.Yellow("  未检测到 mihomo，开始下载…")
 			dest := defaultInstallDir()
-			inst := mihomopkg.Installer{DestDir: dest}
+			inst := mihomopkg.Installer{
+				DestDir: dest,
+				Logf: func(format string, args ...any) {
+					fmt.Printf("  "+format+"\n", args...)
+				},
+			}
 			path, err := inst.Install()
 			if err != nil {
-				return fmt.Errorf("下载 mihomo 失败: %w", err)
+				return fmt.Errorf("下载 mihomo 失败: %w\n    若所有镜像都超时，可设 HTTP_PROXY 环境变量或 GITHUB_MIRROR=<镜像前缀> 后重试", err)
 			}
 			color.Green("  ✓ mihomo 已安装: %s", path)
 		} else {
@@ -78,12 +83,10 @@ var installCmd = &cobra.Command{
 		if startErr != nil {
 			color.Red("  ✗ 启动失败:")
 			fmt.Println(indent("    ", fmt.Sprintf("%v", startErr)))
-			color.Yellow("\n不用怕，已把你带到【主菜单】，在里面就能修。")
-			color.New(color.Faint).Println("  • 选 2 分流 & 规则 → 9 高级 → 可关掉 DNS（最常见的端口冲突）")
-			color.New(color.Faint).Println("  • 修好后选 4 生命周期 → 1 启动  即可再次尝试")
-			color.New(color.Faint).Println("  • 任何时候按 Q 退出，不想改了直接关窗口也行")
+			// 错误已经带了具体的 "怎么修"（a.Start 的职责），不在这里重复一遍。
+			// 只给一句导航：我把你带进主菜单了，修完在「启动 / 重启 / 停止」里再试。
+			color.Yellow("\n已进入主菜单 — 按上方提示修好后，选 4（启动 / 重启 / 停止）重新启动。按 Q 随时退出。")
 			fmt.Println()
-			// 进入主菜单让用户能原地修；不是把错误抛出去直接退出。
 			return console.Run(cmd.Context(), a)
 		}
 		color.Green("  ✓ 网关已启动")
@@ -91,29 +94,40 @@ var installCmd = &cobra.Command{
 		// Step 5: 开机自启（可选，默认 y）
 		fmt.Println()
 		color.Cyan("[5/5] 开机自启")
-		fmt.Println("  装上后，开机 / 重启会自动拉起 mihomo，不用再手动 sudo gateway。")
+		fmt.Printf("  装上后，开机 / 重启会自动拉起 mihomo，不用再手动 %s。\n", elevatedCmd(""))
 		if askYesNo("  要装开机自启吗？", true) {
 			if binPath, err := os.Executable(); err != nil {
-				color.Yellow("  ⚠ 无法定位当前可执行文件: %v（可稍后手动 sudo gateway service install）", err)
+				color.Yellow("  ⚠ 无法定位当前可执行文件: %v（可稍后手动 %s）", err, elevatedCmd("service install"))
 			} else if err := plat.InstallService(binPath); err != nil {
-				color.Yellow("  ⚠ 安装服务失败: %v（可稍后手动 sudo gateway service install）", err)
+				color.Yellow("  ⚠ 安装服务失败: %v（可稍后手动 %s）", err, elevatedCmd("service install"))
 			} else {
 				color.Green("  ✓ 开机自启已启用")
 			}
 		} else {
-			color.New(color.Faint).Println("  跳过。以后想装：sudo gateway service install")
+			color.New(color.Faint).Printf("  跳过。以后想装：%s\n", elevatedCmd("service install"))
 		}
 
 		// 装完直接退出，mihomo 作为孤儿在后台跑。"可用就行了"。
 		fmt.Println()
 		color.Cyan("设备接入指引：")
-		fmt.Println("  把其它设备（Switch / PS5 / Apple TV / 手机）的")
-		fmt.Printf("    网关 + DNS → %s\n", a.Status().Gateway.LocalIP)
-		fmt.Println("  保存并重连 Wi-Fi 即可。")
+		lanIP := a.Status().Gateway.LocalIP
+		mixed := a.Cfg.Runtime.Ports.Mixed
+		if runtime.GOOS == "windows" {
+			// Windows 上 ConfigureNAT 是 no-op（家用版没 RRAS，ICS 强制
+			// 192.168.137/24），"改网关" 走不通 —— 引导用户直接设 HTTP 代理。
+			fmt.Println("  Windows 不支持 LAN 透明网关；请在设备上直接设 HTTP 代理：")
+			fmt.Printf("    代理 → %s  端口 → %d  类型 → HTTP（或 SOCKS5）\n", lanIP, mixed)
+			fmt.Println("    Android: Wi-Fi → 修改网络 → 高级 → 代理=手动")
+			fmt.Println("    iOS:     Wi-Fi → 点 (i) → 配置代理=手动")
+		} else {
+			fmt.Println("  把其它设备（Switch / PS5 / Apple TV / 手机）的")
+			fmt.Printf("    网关 + DNS → %s\n", lanIP)
+			fmt.Println("  保存并重连 Wi-Fi 即可。")
+		}
 		fmt.Println()
 		color.New(color.Faint).Printf("日志          %s\n", a.Engine.LogPath())
-		color.New(color.Faint).Println("调整配置      sudo gateway            （主菜单：换源、切模式、广告拦截、端口…）")
-		color.New(color.Faint).Println("停止 mihomo   sudo gateway stop")
+		color.New(color.Faint).Printf("调整配置      %-24s（主菜单：换源、切模式、广告拦截、端口…）\n", elevatedCmd(""))
+		color.New(color.Faint).Printf("停止 mihomo   %s\n", elevatedCmd("stop"))
 		return nil
 	},
 }

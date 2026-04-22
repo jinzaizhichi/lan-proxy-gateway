@@ -9,22 +9,43 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 )
 
 // Installer knows how to fetch the mihomo binary for the running host.
 type Installer struct {
-	DestDir string // directory to place the binary, e.g. /usr/local/bin
-	Version string // e.g. "v1.18.6"; empty means "latest"
+	DestDir string                           // directory to place the binary, e.g. /usr/local/bin
+	Version string                           // e.g. "v1.18.6"; empty means "latest"
+	Logf    func(format string, args ...any) // optional progress log; nil = silent
+	BaseURL string                           // release URL prefix; empty = official github. Used by tests.
+}
+
+// defaultMirrors is tried in order after the direct URL. Each entry is a
+// prefix that gets stitched onto the full https://github.com/... URL.
+// Ordered roughly by reliability as observed from mainland China.
+var defaultMirrors = []string{
+	"https://ghfast.top/",
+	"https://hub.gitmirror.com/",
+	"https://github.moeyy.xyz/",
+	"https://ghp.ci/",
 }
 
 // Install downloads the correct archive for GOOS/GOARCH and extracts `mihomo` into DestDir.
-// Uses the official github release assets; returns the final binary path.
+// It tries the direct github URL first, then falls back through defaultMirrors; the
+// GITHUB_MIRROR env var (single URL prefix) overrides the mirror list when set.
+// Returns the final binary path.
 func (i Installer) Install() (string, error) {
+	logf := i.Logf
+	if logf == nil {
+		logf = func(string, ...any) {}
+	}
+
 	version := i.Version
 	if version == "" {
 		v, err := resolveLatest()
@@ -39,11 +60,37 @@ func (i Installer) Install() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	url := fmt.Sprintf("https://github.com/MetaCubeX/mihomo/releases/download/%s/%s", version, archName)
-	data, err := httpGet(url)
-	if err != nil {
-		return "", fmt.Errorf("download %s: %w", url, err)
+	base := i.BaseURL
+	if base == "" {
+		base = "https://github.com/MetaCubeX/mihomo/releases/download"
 	}
+	directURL := fmt.Sprintf("%s/%s/%s", strings.TrimRight(base, "/"), version, archName)
+
+	client := newMihomoClient()
+	candidates := mirrorCandidates(directURL)
+
+	var data []byte
+	var lastErr error
+	for idx, candidate := range candidates {
+		label := "直连 github"
+		if idx > 0 {
+			label = "镜像 " + shortHost(candidate)
+		}
+		logf("↓ 下载 mihomo %s (%s)", version, label)
+		body, err := httpGet(client, candidate)
+		if err != nil {
+			lastErr = err
+			logf("  × %s 失败: %v", label, err)
+			continue
+		}
+		data = body
+		lastErr = nil
+		break
+	}
+	if lastErr != nil {
+		return "", fmt.Errorf("download mihomo: 所有下载源均失败 (last: %w)", lastErr)
+	}
+
 	if err := os.MkdirAll(i.DestDir, 0o755); err != nil {
 		return "", err
 	}
@@ -106,15 +153,57 @@ func assetName(goos, arch, version string) (string, string, error) {
 	return "", "", fmt.Errorf("unsupported os/arch: %s/%s", goos, arch)
 }
 
-func httpGet(url string) ([]byte, error) {
-	client := &http.Client{Timeout: 120 * time.Second}
-	resp, err := client.Get(url)
+// mirrorCandidates returns the ordered URL list to try: direct first, then
+// each configured mirror with the direct URL appended. When GITHUB_MIRROR env
+// is set, its value replaces the default mirror list (empty env = use defaults).
+func mirrorCandidates(directURL string) []string {
+	out := []string{directURL}
+	for _, m := range activeMirrors() {
+		out = append(out, ensureMirrorPrefix(m)+directURL)
+	}
+	return out
+}
+
+func activeMirrors() []string {
+	if m := strings.TrimSpace(os.Getenv("GITHUB_MIRROR")); m != "" {
+		return []string{m}
+	}
+	return defaultMirrors
+}
+
+func ensureMirrorPrefix(m string) string {
+	m = strings.TrimSpace(m)
+	if m == "" {
+		return ""
+	}
+	if !strings.HasSuffix(m, "/") {
+		m += "/"
+	}
+	return m
+}
+
+// newMihomoClient builds an http.Client that fails fast on unreachable hosts
+// (so we can move to the next mirror quickly) but allows enough time for the
+// body download on slow links. Honors HTTP_PROXY / HTTPS_PROXY env.
+func newMihomoClient() *http.Client {
+	tr := &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           (&net.Dialer{Timeout: 15 * time.Second}).DialContext,
+		TLSHandshakeTimeout:   15 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
+		IdleConnTimeout:       30 * time.Second,
+	}
+	return &http.Client{Transport: tr, Timeout: 2 * time.Minute}
+}
+
+func httpGet(client *http.Client, rawURL string) ([]byte, error) {
+	resp, err := client.Get(rawURL)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, url)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, rawURL)
 	}
 	return io.ReadAll(resp.Body)
 }
