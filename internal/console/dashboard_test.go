@@ -77,3 +77,73 @@ func TestEgressLocationDedupesCityRegion(t *testing.T) {
 		t.Fatalf("expected City==Region to be deduped, got %q", got)
 	}
 }
+
+func TestDrawDashboardHopCollapsesWhenNoChain(t *testing.T) {
+	oldNoColor := color.NoColor
+	color.NoColor = true
+	defer func() { color.NoColor = oldNoColor }()
+
+	// 没链式代理 → landing 会被 resolveHops 设为等于 takeoff。渲染应合并成一行
+	// "🌐 出口节点"，而不是两行重复的"🛫 起飞 / 🛬 落地"。
+	hop := proxyHop{name: "node-only", flag: "🇭🇰"}
+	var buf bytes.Buffer
+	drawDashboard(&buf, dashboardSnapshot{
+		ok:       true,
+		localIP:  "192.168.1.2",
+		proxySrc: "机场订阅",
+		takeoff:  hop,
+		landing:  hop,
+	}, true)
+	out := buf.String()
+	if !strings.Contains(out, "出口节点") {
+		t.Fatalf("expected single-hop label '出口节点': %s", out)
+	}
+	if strings.Contains(out, "🛫 起飞") || strings.Contains(out, "🛬 落地") {
+		t.Fatalf("no-chain mode should not show takeoff/landing labels: %s", out)
+	}
+}
+
+func TestDrawDashboardHopShowsBothWhenChain(t *testing.T) {
+	oldNoColor := color.NoColor
+	color.NoColor = true
+	defer func() { color.NoColor = oldNoColor }()
+
+	// 链式代理 → takeoff != landing → 两行都要显示
+	var buf bytes.Buffer
+	drawDashboard(&buf, dashboardSnapshot{
+		ok:       true,
+		localIP:  "192.168.1.2",
+		proxySrc: "机场订阅",
+		takeoff:  proxyHop{name: "airport-node", flag: "🇯🇵"},
+		landing:  proxyHop{name: "residential", flag: "🇺🇸", hint: "1.2.3.4:443"},
+	}, true)
+	out := buf.String()
+	for _, want := range []string{"🛫 起飞", "airport-node", "🛬 落地", "residential"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("chain mode missing %q: %s", want, out)
+		}
+	}
+	if strings.Contains(out, "出口节点") {
+		t.Fatalf("chain mode should not use single-hop label: %s", out)
+	}
+}
+
+func TestDrawDashboardWarnsOnMixedPortDown(t *testing.T) {
+	oldNoColor := color.NoColor
+	color.NoColor = true
+	defer func() { color.NoColor = oldNoColor }()
+
+	var buf bytes.Buffer
+	drawDashboard(&buf, dashboardSnapshot{
+		ok:            true,
+		localIP:       "192.168.1.2",
+		proxySrc:      "订阅",
+		takeoff:       proxyHop{name: "a"},
+		landing:       proxyHop{name: "a"},
+		mixedPortDown: true,
+	}, true)
+	out := buf.String()
+	if !strings.Contains(out, "代理端口不通") || !strings.Contains(out, "LAN 设备") {
+		t.Fatalf("expected mixed-port-down warning: %s", out)
+	}
+}

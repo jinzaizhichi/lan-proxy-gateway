@@ -71,6 +71,10 @@ type dashboardSnapshot struct {
 	egressAge time.Duration // 数据新鲜度；零值 = 从没查过
 	egressPending bool      // 后台首次查询进行中，还没有任何结果
 
+	// LAN 代理端口健康：API 通但 mixed 不通 = 手机/LAN 设备连不上。
+	// 常见诱因：reload 中途挂掉、TUN 抢了端口、防火墙拦 LAN 入站。
+	mixedPortDown bool
+
 	// 设备聚合
 	devices []deviceRow
 }
@@ -135,6 +139,17 @@ func fetchDashboardSnapshot(
 	snap.downTotal = conns.DownloadTotal
 	snap.upTotal = conns.UploadTotal
 	snap.connCount = len(conns.Connections)
+
+	// 健康检查：API port 通意味着 mihomo 进程活着，但 mixed port 是 LAN 设备（手机、
+	// Switch、Apple TV 等）真正连上来的入口。两者理论上同生共死，但有实际案例是
+	// API 在但 mixed 不在：reload 中途挂、TUN strict-route 抢端口、或用户防火墙
+	// 拦 LAN 入站。探测一次，不通就在首页显红字告警，避免「dashboard 看着运行中但
+	// 手机连不上」的哑巴场景。
+	if port := cfg.Runtime.Ports.Mixed; port > 0 {
+		if !probeLocalPort(port, 250*time.Millisecond) {
+			snap.mixedPortDown = true
+		}
+	}
 
 	// 速率 = 两次采样差 ÷ 间隔；首次 / mihomo 重启（总量变小）给 0
 	now := time.Now()
@@ -366,6 +381,14 @@ func drawDashboard(w io.Writer, snap dashboardSnapshot, running bool) {
 		return
 	}
 
+	// mixed port 不通：API 活着但 LAN 设备连不上。大红字让用户一眼看见。
+	if snap.mixedPortDown {
+		fmt.Fprintln(w)
+		badC.Fprintln(w, "  ⚠ 代理端口不通：LAN 设备（手机 / Switch 等）现在连不上这台网关")
+		dimC.Fprintln(w, "    常见诱因：reload 后 mihomo 没起干净 · TUN strict-route 抢端口 · 防火墙拦 LAN 入站")
+		dimC.Fprintln(w, "    建议：[M] → 4 → 2 重启；还不行就 [M] → 4 → 4 清理残留 mihomo 后再 1 启动")
+	}
+
 	// 速率 + 累计
 	fmt.Fprintln(w)
 	fmt.Fprintf(w, "  ↓ %s/s   ↑ %s/s   连接 %d\n",
@@ -373,12 +396,19 @@ func drawDashboard(w io.Writer, snap dashboardSnapshot, running bool) {
 	dimC.Fprintf(w, "  本次累计  ↓ %s   ↑ %s  （mihomo 启动起）\n",
 		humanBytes(float64(snap.downTotal)), humanBytes(float64(snap.upTotal)))
 
-	// 起飞 / 落地
+	// 出口 / 链式代理展示
 	fmt.Fprintln(w)
-	fmt.Fprintf(w, "  🛫 起飞  %s  %s\n", hopFlag(snap.takeoff), hopDesc(snap.takeoff))
-	fmt.Fprintf(w, "  🛬 落地  %s  %s\n", hopFlag(snap.landing), hopDesc(snap.landing))
-	// 真实出口：ipinfo.io 实测的 IP / 位置 / ISP。链式代理、IP 轮换、多跳
-	// 的场景下，这一行比 landing 的节点名更能反映真相。
+	if snap.takeoff == snap.landing {
+		// 没配链式代理（无住宅 IP 落地）：只有一跳 = 出口节点本身，多画一行
+		// 「起飞 == 落地」的重复信息会让用户以为系统故障。合成一行 + 真实出口
+		// 就够表达了。
+		fmt.Fprintf(w, "  🌐 出口节点  %s  %s\n", hopFlag(snap.takeoff), hopDesc(snap.takeoff))
+	} else {
+		fmt.Fprintf(w, "  🛫 起飞  %s  %s\n", hopFlag(snap.takeoff), hopDesc(snap.takeoff))
+		fmt.Fprintf(w, "  🛬 落地  %s  %s\n", hopFlag(snap.landing), hopDesc(snap.landing))
+	}
+	// 真实出口：ipinfo.io 实测的 IP / 位置 / ISP。单层代理时用来补全"出口节点"
+	// 那行看不到的真实地域；链式代理时用来验证住宅 IP 实际落在哪。
 	drawEgressLine(w, snap)
 
 	// 设备表
@@ -508,6 +538,18 @@ func humanBytes(n float64) string {
 		return fmt.Sprintf("%5.1f MB", n/(1024*1024))
 	}
 	return fmt.Sprintf("%5.2f GB", n/(1024*1024*1024))
+}
+
+// probeLocalPort 一次快速 TCP 连接，看本机指定端口有没有人在 listen。
+// 跟 engine.probeAPIPort 行为一致（那个是 engine 内部私有），这里自己实现一份
+// 免得为了仪表盘诊断去 export engine 内部函数。
+func probeLocalPort(port int, timeout time.Duration) bool {
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), timeout)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
 }
 
 // fakeIPNet 是 mihomo TUN fake-ip 默认使用的 198.18.0.0/15（benchmark 专用段）。

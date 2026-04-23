@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented here.
 
+## v3.3.1 - 2026-04-24
+
+### Fixed
+
+- Dashboard no longer duplicates "🛫 起飞 / 🛬 落地" as identical lines when there is no chain residential configured; single-hop setups now render one `🌐 出口节点` line, with the ipinfo egress row below providing the ground-truth location
+- Added a `mixed` port health probe to the dashboard refresh: when the mihomo API is reachable but the LAN-facing mixed port is not (e.g. reload half-failed, TUN strict-route stole the port, or firewall blocks LAN ingress), the dashboard now prints a red "代理端口不通：LAN 设备连不上" warning with a repair hint instead of silently showing "● 运行中" while phones time out
+
 ## v3.3.0 - 2026-04-24
 
 ### Added
