@@ -7,7 +7,13 @@ allow-lan: true
 bind-address: "*"
 mode: {{MIHOMO_MODE}}
 log-level: {{LOG_LEVEL}}
-ipv6: false
+# IPv6 放行：允许 mihomo 处理 IPv6 目标地址的连接、也让 DNS 返回 AAAA。
+# 关了会导致双栈目标（chatgpt.com / cloudflare.com 等）在 IPv6 优先的客户端
+# 上解析失败、访问超时；v2.x 版本默认就是开的，v3.0 迁移时从 v1 模板里误把
+# 这行带成了 false，本行是恢复 v2 行为。
+# 注意：TUN 块里默认不劫持 IPv6 路由（不写 inet6-address），IPv6 流量继续走
+# 系统默认路由，避免 Linux 下 TUN strict-route 把本机 IPv6 对外可达性切断。
+ipv6: true
 unified-delay: true
 
 external-controller: 0.0.0.0:{{API_PORT}}
@@ -25,7 +31,9 @@ external-controller-cors:
 dns:
   enable: {{DNS_ENABLED}}
   listen: 0.0.0.0:{{DNS_PORT}}
-  ipv6: false
+  # 返回 AAAA：对照上面 `ipv6: true`，不然客户端拿不到 IPv6 地址也就无从发起
+  # IPv6 连接，跟关 ipv6 效果一样。v2.x 默认放开；v3 修复后对齐。
+  ipv6: true
   enhanced-mode: fake-ip
   fake-ip-range: 198.18.0.1/16
   fake-ip-filter:

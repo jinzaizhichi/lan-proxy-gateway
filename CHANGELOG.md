@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented here.
 
+## v3.3.2 - 2026-04-24
+
+### Fixed
+
+- Embedded mihomo template no longer forces `ipv6: false` and `dns.ipv6: false`; both default to `true` again, matching v2.x behavior. The hard-off was inherited from the v1 legacy template during the v3.0 rewrite and broke dual-stack targets (ChatGPT / Cloudflare / Google) for IPv6-preferring clients. The TUN block intentionally still does **not** hijack IPv6 routes, so the host's IPv6 reachability stays intact (avoids re-triggering the Linux-side IPv6 ping issue from [issue #2](https://github.com/Tght1211/lan-proxy-gateway/issues/2))
+
 ## v3.3.1 - 2026-04-24
 
 ### Fixed
