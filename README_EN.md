@@ -7,7 +7,7 @@
 
 > **Turn one computer into a LAN-wide proxy gateway.** Configure proxies once on the gateway machine, and every device in your house (phone / Switch / PS5 / Apple TV / smart TV) uses them — **no proxy app needed on each device**.
 
-Menu-driven CLI · one-line install · built-in web dashboard. Built on [mihomo](https://github.com/MetaCubeX/mihomo) (Clash.Meta). 中文: [README.md](README.md)
+Menu-driven CLI · one-line install · built-in Gateway web dashboard. Built on [mihomo](https://github.com/MetaCubeX/mihomo) (Clash.Meta). 中文: [README.md](README.md)
 
 ```mermaid
 flowchart LR
@@ -72,7 +72,8 @@ Detailed walkthroughs (with screenshots): [docs/en/](docs/en/) — phone / switc
 | 🌐 **LAN transparent gateway** | Devices join by changing gateway + DNS (macOS/Linux); devices that can't change gateway use HTTP proxy (all platforms) |
 | 🔗 **Three proxy sources** | Clash/mihomo subscription URL · local `.yaml` · an already-running Clash port on the same machine (chaining); local single-proxy mode still supports both `17890` sharing and transparent gateway mode |
 | 🏠 **Chains preset** | One-click "airport entry → residential exit" — AI sites see a residential ASN |
-| 🌐 **Built-in web dashboard** | Open `http://gatewayIP:19090/ui/` to switch nodes, edit rules, watch traffic |
+| 🌐 **Built-in web dashboard** | Open `http://gatewayIP:19091/` to switch proxy sources, policy groups, nodes, run latency tests, inspect connected devices, and control TUN / proxy service independently |
+| 🔐 **Proxy service auth** | The LAN HTTP/SOCKS5 `mixed-port` can be enabled/disabled independently and optionally protected with username/password while TUN stays available |
 | ⚡ **Source supervisor** | Auto-fallbacks subscription/file sources to direct when broken; local single-proxy mode only monitors the port to avoid false switches |
 | 🎯 **Rule system** | Built-in LAN-direct, China-direct, Apple, Nintendo, ad-blocking, AI-service rules — fully editable |
 | 📊 **Node latency probe** | Switch-node page concurrently measures latency and sorts by speed |

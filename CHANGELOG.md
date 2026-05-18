@@ -2,6 +2,35 @@
 
 All notable changes to this project will be documented here.
 
+## v3.4.8 - 2026-05-18
+
+### Added
+
+- Added the Gateway Web control panel on `runtime.ports.web_ui` (default `19091`) with token-protected API access and a `gateway webui` helper command.
+- Added homepage proxy-source status and quick source switching for configured source profiles.
+- Added Clash-style policy-group controls in the WebUI, including scrollable group selection, node switching, and one-click latency tests.
+- Added independent TUN and LAN proxy-service controls. `runtime.proxy_service` can enable/disable `mixed-port` and optionally set username/password authentication.
+- Added version/update check controls in the WebUI.
+- Added full built-in ruleset previews with scroll and copy support.
+
+### Changed
+
+- WebUI dashboard now reports connected device count by unique source IP instead of counting each network request as an active connection.
+- TUN transparent proxy and HTTP/SOCKS5 proxy service are treated as independent capabilities; `gateway.mode` no longer implies a mutually exclusive homepage state.
+- README now points users to the Gateway WebUI at `http://gatewayIP:19091/`.
+
+### Fixed
+
+- Fixed closing TUN from the WebUI still showing TUN as enabled after refresh. Loopback external proxy safety now only forces local bypass when TUN is already enabled, and no longer turns TUN/DNS back on.
+- Fixed homepage capability text showing the old "port mode" label when TUN was enabled.
+- Fixed the quick policy-group area for subscriptions with many groups by replacing fixed cards with a scrollable group list and current-group node pane.
+
+### Tests
+
+- Added/updated config and render tests for loopback external source with explicit TUN off.
+- Added proxy-service render tests for authentication and disabled `mixed-port`.
+- Added WebUI API tests for the new control surface.
+
 ## v3.4.7 - 2026-05-15
 
 ### Fixed
