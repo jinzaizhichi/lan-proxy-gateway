@@ -45,3 +45,6 @@ build-all: clean
 
 clean:
 	rm -rf $(DIST_DIR)/ $(BINARY)
+	rm -rf .tmp/ .cache/ .try/
+	rm -f logs/*.log
+	find . -name '.DS_Store' -delete
