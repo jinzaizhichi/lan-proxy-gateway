@@ -52,6 +52,36 @@ func (f *fakePlatform) ServiceStatus() (string, error)           { return "activ
 func (f *fakePlatform) SetLocalDNSToLoopback() error             { return nil }
 func (f *fakePlatform) RestoreLocalDNS() error                   { return nil }
 func (f *fakePlatform) LocalDNSIsLoopback() (bool, error)        { return false, nil }
+func (f *fakePlatform) ConfigurePFRedirect(iface string, port int) error {
+	f.calls = append(f.calls, "ConfigurePFRedirect:"+iface+":"+itoa(port))
+	return nil
+}
+func (f *fakePlatform) UnconfigurePFRedirect() error {
+	f.calls = append(f.calls, "UnconfigurePFRedirect")
+	return nil
+}
+
+func itoa(i int) string {
+	if i == 0 {
+		return "0"
+	}
+	var b [20]byte
+	pos := len(b)
+	neg := i < 0
+	if neg {
+		i = -i
+	}
+	for i > 0 {
+		pos--
+		b[pos] = byte('0' + i%10)
+		i /= 10
+	}
+	if neg {
+		pos--
+		b[pos] = '-'
+	}
+	return string(b[pos:])
+}
 
 func newGateway(t *testing.T, fp *fakePlatform) *Gateway {
 	t.Helper()
@@ -76,7 +106,7 @@ func TestDisable_PreservesIPForward_WhenAlreadyOnBeforeEnable(t *testing.T) {
 	fp := &fakePlatform{forwardOn: true} // 用户/docker 早就开了
 	g := newGateway(t, fp)
 
-	if err := g.Enable(); err != nil {
+	if err := g.Enable("tun", 0); err != nil {
 		t.Fatalf("Enable: %v", err)
 	}
 	if err := g.Disable(); err != nil {
@@ -95,7 +125,7 @@ func TestDisable_RevertsIPForward_WhenWeTurnedItOn(t *testing.T) {
 	fp := &fakePlatform{forwardOn: false}
 	g := newGateway(t, fp)
 
-	if err := g.Enable(); err != nil {
+	if err := g.Enable("tun", 0); err != nil {
 		t.Fatalf("Enable: %v", err)
 	}
 	if err := g.Disable(); err != nil {
@@ -119,7 +149,7 @@ func TestDisable_UsesNATInterfaceFromState_OnFreshProcess(t *testing.T) {
 	fp1 := &fakePlatform{forwardOn: false}
 	g1 := &Gateway{plat: fp1}
 	g1.SetStatePath(statePath)
-	if err := g1.Enable(); err != nil {
+	if err := g1.Enable("tun", 0); err != nil {
 		t.Fatalf("Enable: %v", err)
 	}
 
@@ -140,7 +170,7 @@ func TestDisable_UsesNATInterfaceFromState_OnFreshProcess(t *testing.T) {
 func TestGatewayDisable_AlwaysCallsPostStopCleanup(t *testing.T) {
 	fp := &fakePlatform{forwardOn: false}
 	g := newGateway(t, fp)
-	if err := g.Enable(); err != nil {
+	if err := g.Enable("tun", 0); err != nil {
 		t.Fatalf("Enable: %v", err)
 	}
 	if err := g.Disable(); err != nil {
@@ -175,11 +205,11 @@ func TestEnable_Idempotent_KeepsWeChangedFlag(t *testing.T) {
 	fp := &fakePlatform{forwardOn: false}
 	g := newGateway(t, fp)
 
-	if err := g.Enable(); err != nil {
+	if err := g.Enable("tun", 0); err != nil {
 		t.Fatalf("first Enable: %v", err)
 	}
 	// 第二次 Enable，此时 forwardOn 已经是 true
-	if err := g.Enable(); err != nil {
+	if err := g.Enable("tun", 0); err != nil {
 		t.Fatalf("second Enable: %v", err)
 	}
 	if err := g.Disable(); err != nil {
@@ -187,5 +217,51 @@ func TestEnable_Idempotent_KeepsWeChangedFlag(t *testing.T) {
 	}
 	if !contains(fp.calls, "DisableIPForward") {
 		t.Fatalf("DisableIPForward must be called after re-Enable kept the flag; got %v", fp.calls)
+	}
+}
+
+// forward 模式：Enable 必须调 ConfigurePFRedirect(iface, redirPort)；
+// Disable 必须按 state 里 GatewayMode="forward" 调 UnconfigurePFRedirect。
+// 这一条之前 0 覆盖（review 标 🔴），是新加 iptables REDIRECT 的核心路径。
+func TestEnable_ForwardModeInstallsPFRedirect(t *testing.T) {
+	fp := &fakePlatform{forwardOn: false}
+	g := newGateway(t, fp)
+	if err := g.Enable("forward", 17892); err != nil {
+		t.Fatalf("Enable forward: %v", err)
+	}
+	if !contains(fp.calls, "ConfigurePFRedirect:eth0:17892") {
+		t.Fatalf("forward mode 必须调 ConfigurePFRedirect:eth0:17892；got %v", fp.calls)
+	}
+	if !contains(fp.calls, "ConfigureNAT:eth0") {
+		t.Fatalf("ConfigureNAT 仍要调（NAT 跟 redir 同时需要）；got %v", fp.calls)
+	}
+}
+
+func TestDisable_ForwardModeUnconfiguresPFRedirect(t *testing.T) {
+	fp := &fakePlatform{forwardOn: false}
+	g := newGateway(t, fp)
+	if err := g.Enable("forward", 17892); err != nil {
+		t.Fatalf("Enable: %v", err)
+	}
+	fp.calls = nil // 只关心 Disable 阶段
+	if err := g.Disable(); err != nil {
+		t.Fatalf("Disable: %v", err)
+	}
+	if !contains(fp.calls, "UnconfigurePFRedirect") {
+		t.Fatalf("forward Disable 必须调 UnconfigurePFRedirect；got %v", fp.calls)
+	}
+}
+
+// 切到 TUN 模式时不应该误调 PFRedirect，TUN 走的是 utun 设备不需要 iptables redir。
+func TestEnable_TUNModeSkipsPFRedirect(t *testing.T) {
+	fp := &fakePlatform{forwardOn: false}
+	g := newGateway(t, fp)
+	if err := g.Enable("tun", 17892); err != nil {
+		t.Fatalf("Enable tun: %v", err)
+	}
+	for _, c := range fp.calls {
+		if len(c) >= len("ConfigurePFRedirect") && c[:len("ConfigurePFRedirect")] == "ConfigurePFRedirect" {
+			t.Fatalf("TUN 模式不应调 ConfigurePFRedirect；got %v", fp.calls)
+		}
 	}
 }

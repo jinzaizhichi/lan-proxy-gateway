@@ -2,6 +2,7 @@ package console
 
 import (
 	"bytes"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -146,4 +147,34 @@ func TestDrawDashboardWarnsOnMixedPortDown(t *testing.T) {
 	if !strings.Contains(out, "代理端口不通") || !strings.Contains(out, "LAN 设备") {
 		t.Fatalf("expected mixed-port-down warning: %s", out)
 	}
+}
+
+func TestProbeMixedPortAcceptsLANIP(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		conn, err := ln.Accept()
+		if err == nil {
+			_ = conn.Close()
+		}
+	}()
+
+	_, portText, err := net.SplitHostPort(ln.Addr().String())
+	if err != nil {
+		t.Fatalf("SplitHostPort: %v", err)
+	}
+	port, err := net.LookupPort("tcp", portText)
+	if err != nil {
+		t.Fatalf("LookupPort: %v", err)
+	}
+
+	if !probeMixedPort("127.0.0.1", port, time.Second) {
+		t.Fatal("expected probeMixedPort to accept reachable LAN/local IP")
+	}
+	<-done
 }

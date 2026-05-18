@@ -31,6 +31,11 @@ type Platform interface {
 	ConfigureNAT(iface string) error
 	UnconfigureNAT(iface string) error
 
+	// PF/iptables redirect for "forward" gateway mode: only intercept
+	// forwarded traffic from other LAN devices, leaving host traffic alone.
+	ConfigurePFRedirect(iface string, redirPort int) error
+	UnconfigurePFRedirect() error
+
 	// PostStopCleanup runs after the mihomo engine has been signaled to stop.
 	// Defensive cleanup for OS state mihomo may have left behind when killed
 	// abruptly (SIGKILL after grace timeout, crash, OOM). On Linux this scrubs

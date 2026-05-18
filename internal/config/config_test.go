@@ -131,9 +131,10 @@ func TestUsesLocalExternalProxy(t *testing.T) {
 	}
 }
 
-func TestEffectiveRuntimeConfigProtectsLocalExternalProxy(t *testing.T) {
+func TestEffectiveRuntimeConfigRespectsTUNOffWithLocalExternalProxy(t *testing.T) {
 	cfg := Default()
 	cfg.Gateway.Enabled = true
+	cfg.Gateway.Mode = GatewayModeTUN
 	cfg.Gateway.TUN.Enabled = false
 	cfg.Gateway.TUN.BypassLocal = false
 	cfg.Gateway.DNS.Enabled = false
@@ -144,14 +145,91 @@ func TestEffectiveRuntimeConfigProtectsLocalExternalProxy(t *testing.T) {
 	if effective == cfg {
 		t.Fatal("EffectiveRuntimeConfig must return a copy")
 	}
-	if !effective.Gateway.Enabled || !effective.Gateway.TUN.Enabled || !effective.Gateway.DNS.Enabled {
-		t.Fatalf("local external proxy should preserve transparent gateway features: %+v", effective.Gateway)
-	}
-	if !effective.Gateway.TUN.BypassLocal {
-		t.Fatalf("local external proxy should force TUN local bypass: %+v", effective.Gateway.TUN)
+	if effective.Gateway.TUN.Enabled || effective.Gateway.DNS.Enabled || effective.Gateway.TUN.BypassLocal {
+		t.Fatalf("local external proxy must not override an explicit TUN/DNS off state: %+v", effective.Gateway)
 	}
 	if !cfg.Gateway.Enabled || cfg.Gateway.TUN.Enabled || cfg.Gateway.TUN.BypassLocal || cfg.Gateway.DNS.Enabled {
 		t.Fatal("original config should not be mutated")
+	}
+}
+
+func TestEffectiveRuntimeConfigProtectsLocalExternalProxyWhenTUNOn(t *testing.T) {
+	cfg := Default()
+	cfg.Gateway.Enabled = true
+	cfg.Gateway.Mode = GatewayModeTUN
+	cfg.Gateway.TUN.Enabled = true
+	cfg.Gateway.TUN.BypassLocal = false
+	cfg.Source.Type = SourceTypeExternal
+	cfg.Source.External.Server = "127.0.0.1"
+
+	effective := EffectiveRuntimeConfig(cfg)
+	if !effective.Gateway.TUN.Enabled {
+		t.Fatalf("local external proxy should keep enabled TUN on: %+v", effective.Gateway.TUN)
+	}
+	if !effective.Gateway.TUN.BypassLocal {
+		t.Fatalf("local external proxy should force local bypass only when TUN is on: %+v", effective.Gateway.TUN)
+	}
+	if !cfg.Gateway.TUN.Enabled || cfg.Gateway.TUN.BypassLocal {
+		t.Fatal("original config should not be mutated")
+	}
+}
+
+func TestDefaultModeIsTUN(t *testing.T) {
+	// 默认 mode 必须是 tun —— 一键式旁路由是本项目卖点，新用户跑起来就该
+	// 把投影仪/Switch/AppleTV 接入网关。要"零干扰本机"的用户菜单切 forward 即可。
+	cfg := Default()
+	if cfg.Gateway.Mode != GatewayModeTUN {
+		t.Fatalf("Default().Gateway.Mode = %q, want %q", cfg.Gateway.Mode, GatewayModeTUN)
+	}
+	if !cfg.Gateway.TUN.Enabled {
+		t.Fatalf("Default().Gateway.TUN.Enabled must be true (旁路由开箱即用)")
+	}
+}
+
+func TestEffectiveRuntimeConfig_ForwardWithLocalExternalProxy(t *testing.T) {
+	cfg := Default()
+	cfg.Gateway.Enabled = true
+	cfg.Gateway.Mode = GatewayModeForward
+	cfg.Gateway.TUN.Enabled = false
+	cfg.Source.Type = SourceTypeExternal
+	cfg.Source.External.Server = "127.0.0.1"
+	cfg.Source.External.Port = 7890
+	cfg.Source.External.Kind = "http"
+
+	effective := EffectiveRuntimeConfig(cfg)
+	if effective.Gateway.TUN.Enabled || effective.Gateway.TUN.BypassLocal {
+		t.Fatalf("forward + local-external 不应强制打开 TUN：%+v", effective.Gateway.TUN)
+	}
+}
+
+func TestNormalize_AutoGenWebUIToken(t *testing.T) {
+	cfg := &Config{}
+	Normalize(cfg)
+	if cfg.Runtime.WebUIToken == "" {
+		t.Fatal("Normalize 必须自动生成 WebUIToken，不能留空")
+	}
+	if len(cfg.Runtime.WebUIToken) != 32 {
+		t.Fatalf("WebUIToken 应是 32 字符 hex；got len=%d", len(cfg.Runtime.WebUIToken))
+	}
+	// Normalize 再跑一次不应覆盖已存在的 token（否则用户保留的 token 会丢）。
+	saved := cfg.Runtime.WebUIToken
+	Normalize(cfg)
+	if cfg.Runtime.WebUIToken != saved {
+		t.Fatalf("Normalize 不应覆盖已有 token；before=%q after=%q", saved, cfg.Runtime.WebUIToken)
+	}
+}
+
+func TestEffectiveRuntimeConfigForwardModeDoesNotForceOffTUN(t *testing.T) {
+	// forward 只表示网关层使用端口转发策略；TUN 是独立能力，WebUI 允许两者同时开。
+	cfg := Default()
+	cfg.Gateway.Enabled = true
+	cfg.Gateway.Mode = GatewayModeForward
+	cfg.Gateway.TUN.Enabled = true
+	cfg.Gateway.TUN.BypassLocal = false
+
+	effective := EffectiveRuntimeConfig(cfg)
+	if !effective.Gateway.TUN.Enabled {
+		t.Fatalf("forward 模式不应强制关闭 TUN：%+v", effective.Gateway.TUN)
 	}
 }
 
@@ -167,7 +245,7 @@ func TestEffectiveRuntimeConfigAllowsPortOnlyModeWhenGatewayDisabled(t *testing.
 	if effective.Gateway.Enabled || effective.Gateway.TUN.Enabled || effective.Gateway.DNS.Enabled {
 		t.Fatalf("disabled gateway should stay port-only: %+v", effective.Gateway)
 	}
-	if !effective.Gateway.TUN.BypassLocal {
-		t.Fatalf("local external proxy should still force local bypass in the runtime copy")
+	if effective.Gateway.TUN.BypassLocal {
+		t.Fatalf("local external proxy should not force local bypass when TUN is off")
 	}
 }

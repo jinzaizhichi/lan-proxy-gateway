@@ -48,10 +48,10 @@ type connSample struct {
 
 // dashboardSnapshot 是一次刷新计算出的渲染数据，render 阶段只读。
 type dashboardSnapshot struct {
-	ok        bool   // false = 当前拉不到数据（mihomo 没跑 / API 失败）
-	errMsg    string // ok=false 时给用户看的原因
-	localIP   string
-	proxySrc  string
+	ok       bool   // false = 当前拉不到数据（mihomo 没跑 / API 失败）
+	errMsg   string // ok=false 时给用户看的原因
+	localIP  string
+	proxySrc string
 
 	// 瞬时数据
 	downRate  float64 // bytes/s
@@ -66,10 +66,10 @@ type dashboardSnapshot struct {
 
 	// 真实出口（ipinfo.io 查到的落地 IP / 位置 / ISP）。nil 表示从没成功过
 	// 或 mihomo 没跑；egressAge 表示这份数据距今多久，用来提示「30s 前」等。
-	egress    *ipinfo.Info
-	egressErr string        // 最近一次请求的错误（nil egress + 非空 err = 查失败）
-	egressAge time.Duration // 数据新鲜度；零值 = 从没查过
-	egressPending bool      // 后台首次查询进行中，还没有任何结果
+	egress        *ipinfo.Info
+	egressErr     string        // 最近一次请求的错误（nil egress + 非空 err = 查失败）
+	egressAge     time.Duration // 数据新鲜度；零值 = 从没查过
+	egressPending bool          // 后台首次查询进行中，还没有任何结果
 
 	// LAN 代理端口健康：API 通但 mixed 不通 = 手机/LAN 设备连不上。
 	// 常见诱因：reload 中途挂掉、TUN 抢了端口、防火墙拦 LAN 入站。
@@ -81,9 +81,9 @@ type dashboardSnapshot struct {
 
 // proxyHop 表示一个代理位置点。
 type proxyHop struct {
-	name    string // 节点名（包含用户起的 emoji/国旗）
-	flag    string // 2 个 regional indicator 字符 emoji；提取不到留空
-	hint    string // 辅助信息（如 "234ms"、"住宅IP 1.2.3.4"），可空
+	name string // 节点名（包含用户起的 emoji/国旗）
+	flag string // 2 个 regional indicator 字符 emoji；提取不到留空
+	hint string // 辅助信息（如 "234ms"、"住宅IP 1.2.3.4"），可空
 }
 
 // deviceRow 仪表盘设备表的一行。
@@ -119,8 +119,8 @@ func fetchDashboardSnapshot(
 	defer cancel()
 
 	var (
-		conns  *engine.ConnectionsSnapshot
-		groups []engine.ProxyGroup
+		conns      *engine.ConnectionsSnapshot
+		groups     []engine.ProxyGroup
 		cErr, gErr error
 	)
 	var wg sync.WaitGroup
@@ -141,12 +141,11 @@ func fetchDashboardSnapshot(
 	snap.connCount = len(conns.Connections)
 
 	// 健康检查：API port 通意味着 mihomo 进程活着，但 mixed port 是 LAN 设备（手机、
-	// Switch、Apple TV 等）真正连上来的入口。两者理论上同生共死，但有实际案例是
-	// API 在但 mixed 不在：reload 中途挂、TUN strict-route 抢端口、或用户防火墙
-	// 拦 LAN 入站。探测一次，不通就在首页显红字告警，避免「dashboard 看着运行中但
-	// 手机连不上」的哑巴场景。
+	// Switch、Apple TV 等）真正连上来的入口。这里做容错探测：localhost 和 LAN IP
+	// 任一能连上就认为 mixed 可用，避免系统忙或连接数高时一次 250ms localhost
+	// 探测抖动造成误报。
 	if port := cfg.Runtime.Ports.Mixed; port > 0 {
-		if !probeLocalPort(port, 250*time.Millisecond) {
+		if !probeMixedPort(localIP, port, 500*time.Millisecond) {
 			snap.mixedPortDown = true
 		}
 	}
@@ -385,7 +384,7 @@ func drawDashboard(w io.Writer, snap dashboardSnapshot, running bool) {
 	if snap.mixedPortDown {
 		fmt.Fprintln(w)
 		badC.Fprintln(w, "  ⚠ 代理端口不通：LAN 设备（手机 / Switch 等）现在连不上这台网关")
-		dimC.Fprintln(w, "    常见诱因：reload 后 mihomo 没起干净 · TUN strict-route 抢端口 · 防火墙拦 LAN 入站")
+		dimC.Fprintln(w, "    常见诱因：reload 后 mihomo 没起干净 · 端口被其它进程占用 · 防火墙拦 LAN 入站")
 		dimC.Fprintln(w, "    建议：[M] → 4 → 2 重启；还不行就 [M] → 4 → 4 清理残留 mihomo 后再 1 启动")
 	}
 
@@ -540,11 +539,34 @@ func humanBytes(n float64) string {
 	return fmt.Sprintf("%5.2f GB", n/(1024*1024*1024))
 }
 
-// probeLocalPort 一次快速 TCP 连接，看本机指定端口有没有人在 listen。
-// 跟 engine.probeAPIPort 行为一致（那个是 engine 内部私有），这里自己实现一份
-// 免得为了仪表盘诊断去 export engine 内部函数。
-func probeLocalPort(port int, timeout time.Duration) bool {
-	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), timeout)
+func probeMixedPort(localIP string, port int, timeout time.Duration) bool {
+	hosts := []string{"127.0.0.1"}
+	if localIP != "" && localIP != "127.0.0.1" {
+		hosts = append(hosts, localIP)
+	}
+	for _, host := range hosts {
+		if probeTCPPort(host, port, timeout, 3) {
+			return true
+		}
+	}
+	return false
+}
+
+func probeTCPPort(host string, port int, timeout time.Duration, attempts int) bool {
+	if attempts < 1 {
+		attempts = 1
+	}
+	for i := 0; i < attempts; i++ {
+		if probeTCPPortOnce(host, port, timeout) {
+			return true
+		}
+	}
+	return false
+}
+
+// probeTCPPortOnce 一次快速 TCP 连接，看指定端口有没有人在 listen。
+func probeTCPPortOnce(host string, port int, timeout time.Duration) bool {
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", host, port), timeout)
 	if err != nil {
 		return false
 	}
@@ -650,4 +672,3 @@ func (c *consoleUI) addDeviceLabel() {
 	}
 	okC.Fprintf(c.out, "  ✓ %s → %s\n", ip, name)
 }
-

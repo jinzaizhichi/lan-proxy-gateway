@@ -116,6 +116,14 @@ func (windowsPlatform) UnconfigureNAT(iface string) error { return nil }
 // own routes via the wintun lifecycle when the adapter is destroyed.
 func (windowsPlatform) PostStopCleanup() error { return nil }
 
+func (windowsPlatform) ConfigurePFRedirect(iface string, redirPort int) error {
+	return ErrNotSupported
+}
+
+func (windowsPlatform) UnconfigurePFRedirect() error {
+	return ErrNotSupported
+}
+
 func (windowsPlatform) ResolveMihomoPath(preferred string) (string, error) {
 	if preferred != "" {
 		if _, err := os.Stat(preferred); err == nil {

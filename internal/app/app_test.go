@@ -32,7 +32,9 @@ func (p *fakePlatform) RestoreLocalDNS() error {
 	p.restoreCalled++
 	return p.restoreErr
 }
-func (p *fakePlatform) LocalDNSIsLoopback() (bool, error) { return p.loopback, nil }
+func (p *fakePlatform) LocalDNSIsLoopback() (bool, error)     { return p.loopback, nil }
+func (p *fakePlatform) ConfigurePFRedirect(string, int) error { return nil }
+func (p *fakePlatform) UnconfigurePFRedirect() error          { return nil }
 
 func TestStopRestoresLocalDNSWhenLoopback(t *testing.T) {
 	plat := &fakePlatform{loopback: true}

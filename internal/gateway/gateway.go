@@ -6,6 +6,7 @@
 package gateway
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/tght/lan-proxy-gateway/internal/platform"
@@ -42,15 +43,15 @@ func (g *Gateway) Detect() error {
 	return nil
 }
 
-// Enable turns on IP forwarding and, where applicable, NAT rules.
+// Enable turns on IP forwarding and, where applicable, NAT / pf-redirect rules.
 //
-// 状态机：Enable() 记录两件事到 runtime.state：
-//  1. NATInterface — 我们 ConfigureNAT 用的 iface，Disable() 用来反删
-//  2. WeEnabledIPForward — 仅当我们把 ip_forward 从 0 改成 1 时为 true
+// mode selects the gateway strategy:
+//   - "tun" (default): IP forward + NAT; mihomo TUN handles traffic capture.
+//   - "forward": IP forward + pf/iptables redirect forwarded TCP to redirPort;
+//     host traffic stays untouched.
 //
-// 这样多次 Enable() 也是幂等的：如果已经记录过 WeEnabledIPForward=true，
-// 重新 Enable 不会因为当前值已经是 1 就把这个 flag 清掉。
-func (g *Gateway) Enable() error {
+// redirPort is only used in "forward" mode (mihomo's redir-port).
+func (g *Gateway) Enable(mode string, redirPort int) error {
 	if g.info.Interface == "" {
 		if err := g.Detect(); err != nil {
 			return fmt.Errorf("detect network: %w", err)
@@ -62,6 +63,15 @@ func (g *Gateway) Enable() error {
 	if err := g.plat.EnableIPForward(); err != nil {
 		return fmt.Errorf("enable IP forwarding: %w", err)
 	}
+
+	if mode == "forward" {
+		// Best-effort: on Linux, pf/iptables redirect enables redir-port based
+		// transparent proxy. On macOS redir-port is not supported by mihomo,
+		// so we skip and fall back to TUN with bypass_local.
+		if err := g.plat.ConfigurePFRedirect(g.info.Interface, redirPort); err != nil && !errors.Is(err, platform.ErrNotSupported) {
+			return fmt.Errorf("configure pf redirect: %w", err)
+		}
+	}
 	if err := g.plat.ConfigureNAT(g.info.Interface); err != nil {
 		return fmt.Errorf("configure NAT: %w", err)
 	}
@@ -69,6 +79,7 @@ func (g *Gateway) Enable() error {
 	state := runtimeState{
 		NATInterface:       g.info.Interface,
 		WeEnabledIPForward: existing.WeEnabledIPForward || !priorForward,
+		GatewayMode:        mode,
 	}
 	_ = writeRuntimeState(g.statePath, state)
 	return nil
@@ -95,12 +106,15 @@ func (g *Gateway) Enable() error {
 func (g *Gateway) Disable() error {
 	state, _ := readRuntimeState(g.statePath)
 
+	if state.GatewayMode == "forward" {
+		_ = g.plat.UnconfigurePFRedirect()
+	}
+
 	iface := state.NATInterface
 	if iface == "" && g.info.Interface != "" {
 		iface = g.info.Interface
 	}
 	if iface == "" {
-		// 最后一招：现场 Detect 一次（默认路由还在的话能拿到 iface）。
 		if err := g.Detect(); err == nil {
 			iface = g.info.Interface
 		}

@@ -33,6 +33,8 @@ func (consoleTestPlatform) ServiceStatus() (string, error)           { return ""
 func (consoleTestPlatform) SetLocalDNSToLoopback() error             { return nil }
 func (consoleTestPlatform) RestoreLocalDNS() error                   { return nil }
 func (consoleTestPlatform) LocalDNSIsLoopback() (bool, error)        { return false, nil }
+func (consoleTestPlatform) ConfigurePFRedirect(string, int) error    { return nil }
+func (consoleTestPlatform) UnconfigurePFRedirect() error             { return nil }
 
 func TestScreenMenuQReturnsDashboard(t *testing.T) {
 	oldNoColor := color.NoColor

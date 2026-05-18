@@ -26,6 +26,7 @@ type Config struct {
 // GatewayConfig drives the LAN gateway (the "main" feature).
 type GatewayConfig struct {
 	Enabled bool      `yaml:"enabled"`
+	Mode    string    `yaml:"mode"` // tun | forward
 	TUN     TUNConfig `yaml:"tun"`
 	DNS     DNSConfig `yaml:"dns"`
 	// DeviceLabels 把 LAN 设备 IP 映射成人读的名字（例如 "192.168.1.23" → "Switch"），
@@ -148,17 +149,47 @@ type Profile struct {
 
 // RuntimeConfig groups technical settings (ports, secrets, logging).
 type RuntimeConfig struct {
-	Ports     RuntimePorts `yaml:"ports"`
-	APISecret string       `yaml:"api_secret"`
-	LogLevel  string       `yaml:"log_level"`
+	Ports        RuntimePorts       `yaml:"ports"`
+	ProxyService ProxyServiceConfig `yaml:"proxy_service"`
+	APISecret    string             `yaml:"api_secret"`
+	LogLevel     string             `yaml:"log_level"`
+	WebUIToken   string             `yaml:"web_ui_token"`
 }
 
-// RuntimePorts are the listen ports exposed by mihomo.
+// RuntimePorts are the listen ports exposed by mihomo and the gateway WebUI.
 type RuntimePorts struct {
 	Mixed int `yaml:"mixed"`
 	Redir int `yaml:"redir"`
 	API   int `yaml:"api"`
+	// WebUI 是 gateway 自己的 HTTP 控制台（不是 mihomo 的 /ui）。0 = 不监听。
+	// 默认 19091，避开 mihomo external-controller 的 19090。
+	WebUI int `yaml:"web_ui"`
 }
+
+// ProxyServiceConfig controls the LAN-facing mixed-port proxy service.
+//
+// Enabled is a pointer so old gateway.yaml files that do not have the field keep
+// the default "on" behavior, while an explicit `enabled: false` survives
+// Normalize/Save.
+type ProxyServiceConfig struct {
+	Enabled  *bool  `yaml:"enabled,omitempty"`
+	Username string `yaml:"username,omitempty"`
+	Password string `yaml:"password,omitempty"`
+}
+
+func (p ProxyServiceConfig) IsEnabled() bool {
+	return p.Enabled == nil || *p.Enabled
+}
+
+func BoolPtr(v bool) *bool { return &v }
+
+// RuntimeConfig.WebUIToken 是 WebUI 鉴权令牌。WebUI 默认监听 0.0.0.0:19091（方便 LAN
+// 上手机/平板访问），如果没有 token，**任何同网段设备都可以改本机配置**，更糟的是
+// 通过 SetScript 指向恶意 .js 实现 RCE。token 在 Normalize 时自动生成一次写入
+// gateway.yaml，CLI 启动横幅和 `gateway webui` 子命令都会把含 token 的完整 URL 打印给你。
+//
+// 校验形式：HTTP header `Authorization: Bearer <token>`；前端从 URL 片段 `#token=...`
+// 读取一次后存进 sessionStorage 并清掉 URL 里的 token，避免被浏览器历史/截图泄漏。
 
 // Default returns a fresh config with sensible defaults for first-time users.
 // Defaults: LAN gateway on, TUN on, rule mode, adblock on, external proxy at 127.0.0.1:7890.
@@ -171,8 +202,12 @@ func Default() *Config {
 		Version: Version,
 		Gateway: GatewayConfig{
 			Enabled: true,
-			TUN:     TUNConfig{Enabled: true, BypassLocal: false},
-			DNS:     DNSConfig{Enabled: true, Port: 53},
+			// 默认 tun 模式（一键式旁路由是本项目卖点）。Mac 上 TUN 已做低干扰
+			// 处理（无 dns-hijack、strict-route: false），宿主机网络栈影响最小；
+			// 实在受不了的用户可以在菜单切到 forward 模式（端口模式）。
+			Mode: GatewayModeTUN,
+			TUN:  TUNConfig{Enabled: true, BypassLocal: false},
+			DNS:  DNSConfig{Enabled: true, Port: 53},
 		},
 		Traffic: TrafficConfig{
 			Mode:    ModeRule,
@@ -196,8 +231,9 @@ func Default() *Config {
 			},
 		},
 		Runtime: RuntimeConfig{
-			Ports:    RuntimePorts{Mixed: 17890, Redir: 17892, API: 19090},
-			LogLevel: "warning",
+			Ports:        RuntimePorts{Mixed: 17890, Redir: 17892, API: 19090, WebUI: 19091},
+			ProxyService: ProxyServiceConfig{Enabled: BoolPtr(true)},
+			LogLevel:     "warning",
 		},
 	}
 }
@@ -218,6 +254,17 @@ const (
 	SourceTypeNone         = "none"
 )
 
+// Gateway mode constants.
+const (
+	// GatewayModeTUN uses mihomo's TUN virtual interface to capture all traffic
+	// (host + forwarded). This is the default and the original behavior.
+	GatewayModeTUN = "tun"
+	// GatewayModeForward uses pf/iptables to redirect only forwarded traffic
+	// from other LAN devices to mihomo's redir-port; the host's own traffic
+	// is untouched.
+	GatewayModeForward = "forward"
+)
+
 // UsesLocalExternalProxy reports whether gateway is chained behind another
 // proxy client on the same host, e.g. Clash Verge / Mihomo Party at 127.0.0.1.
 // In this shape gateway must keep the local host out of strict TUN capture,
@@ -230,24 +277,26 @@ func UsesLocalExternalProxy(cfg *Config) bool {
 	return IsLoopbackHost(cfg.Source.External.Server)
 }
 
-// EffectiveRuntimeConfig returns a copy adjusted for runtime safety.
+// EffectiveRuntimeConfig 把保存的 Config 翻译成运行时可信的副本。
 //
-// When gateway chains behind another proxy on the same machine, strict TUN
-// routing can capture that upstream proxy client's own outbound traffic and
-// create a self-proxy loop. Preserve the normal LAN gateway features, but force
-// TUN/DNS on plus local bypass so the rendered mihomo config uses
-// strict-route: false.
+// 模式语义（平台无关）：
+//   - gateway.mode 只选择网关层策略（tun / forward），不再隐式关闭 TUN。
+//   - gateway.tun.enabled 是透明代理能力的独立开关。
+//   - runtime.proxy_service.enabled 是 HTTP/SOCKS5 mixed-port 的独立开关。
+//
+// TUN 开启 + local external proxy (源是 127.0.0.1)：强制 BypassLocal=true，
+// 避免 TUN strict-route 把上游 Clash Verge / Mihomo Party 的出向也劫持成
+// 自循环。这里不能强制打开 TUN，否则 WebUI 里关闭透明代理会被状态快照改回开启。
 func EffectiveRuntimeConfig(cfg *Config) *Config {
 	if cfg == nil {
 		return nil
 	}
 	out := *cfg
+	if out.Gateway.Mode == "" {
+		out.Gateway.Mode = GatewayModeTUN
+	}
 	if UsesLocalExternalProxy(cfg) {
-		if out.Gateway.Enabled {
-			out.Gateway.TUN.Enabled = true
-			out.Gateway.DNS.Enabled = true
-		}
-		out.Gateway.TUN.BypassLocal = true
+		out.Gateway.TUN.BypassLocal = out.Gateway.TUN.Enabled
 	}
 	return &out
 }

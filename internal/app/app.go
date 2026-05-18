@@ -70,7 +70,11 @@ func (a *App) Save() error {
 func (a *App) Start(ctx context.Context) error {
 	effective := config.EffectiveRuntimeConfig(a.Cfg)
 	if effective.Gateway.Enabled {
-		if err := a.Gateway.Enable(); err != nil {
+		mode := effective.Gateway.Mode
+		if mode == "" {
+			mode = config.GatewayModeTUN
+		}
+		if err := a.Gateway.Enable(mode, effective.Runtime.Ports.Redir); err != nil {
 			return fmt.Errorf("启动局域网网关失败: %w", err)
 		}
 	}
@@ -166,6 +170,26 @@ func (a *App) ToggleTUN(ctx context.Context) error {
 	return nil
 }
 
+// SetGatewayMode switches between "tun" and "forward" gateway modes.
+// Requires a full restart because the gateway layer (pf rules / TUN) must
+// be torn down and re-created.
+func (a *App) SetGatewayMode(ctx context.Context, mode string) error {
+	if mode != config.GatewayModeTUN && mode != config.GatewayModeForward {
+		return fmt.Errorf("不支持的网关模式: %s", mode)
+	}
+	a.Cfg.Gateway.Mode = mode
+	if err := a.Save(); err != nil {
+		return err
+	}
+	if a.Engine != nil && a.Engine.Running() {
+		if err := a.Stop(); err != nil {
+			return fmt.Errorf("停止旧网关失败: %w", err)
+		}
+		return a.Start(ctx)
+	}
+	return nil
+}
+
 // SetSource replaces the source config wholesale, saves and reloads.
 func (a *App) SetSource(ctx context.Context, src config.SourceConfig) error {
 	a.Cfg.Source = src
@@ -180,16 +204,17 @@ func (a *App) SetSource(ctx context.Context, src config.SourceConfig) error {
 
 // Status builds a read-only snapshot for UI rendering.
 type Status struct {
-	Configured bool
-	Running    bool
-	Mode       string
-	Adblock    bool
-	TUN        bool
-	Source     string
-	Gateway    gateway.Status
-	Ports      config.RuntimePorts
-	MihomoBin  string
-	ConfigFile string
+	Configured  bool
+	Running     bool
+	Mode        string
+	Adblock     bool
+	TUN         bool
+	GatewayMode string
+	Source      string
+	Gateway     gateway.Status
+	Ports       config.RuntimePorts
+	MihomoBin   string
+	ConfigFile  string
 }
 
 // Status returns the current runtime status (no blocking network calls).
@@ -200,16 +225,21 @@ func (a *App) Status() Status {
 	if p, err := a.Plat.ResolveMihomoPath(""); err == nil {
 		bin = p
 	}
+	gwMode := effective.Gateway.Mode
+	if gwMode == "" {
+		gwMode = config.GatewayModeTUN
+	}
 	return Status{
-		Configured: a.Configured(),
-		Running:    a.Engine != nil && a.Engine.Running(),
-		Mode:       effective.Traffic.Mode,
-		Adblock:    effective.Traffic.Adblock,
-		TUN:        effective.Gateway.TUN.Enabled,
-		Source:     effective.Source.Type,
-		Gateway:    gs,
-		Ports:      effective.Runtime.Ports,
-		MihomoBin:  bin,
-		ConfigFile: a.Paths.ConfigFile,
+		Configured:  a.Configured(),
+		Running:     a.Engine != nil && a.Engine.Running(),
+		Mode:        effective.Traffic.Mode,
+		Adblock:     effective.Traffic.Adblock,
+		TUN:         effective.Gateway.TUN.Enabled,
+		GatewayMode: gwMode,
+		Source:      effective.Source.Type,
+		Gateway:     gs,
+		Ports:       effective.Runtime.Ports,
+		MihomoBin:   bin,
+		ConfigFile:  a.Paths.ConfigFile,
 	}
 }

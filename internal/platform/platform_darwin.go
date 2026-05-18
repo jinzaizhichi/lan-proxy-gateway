@@ -101,6 +101,16 @@ func (darwinPlatform) UnconfigureNAT(iface string) error { return nil }
 // to its own utun interface, which disappears with the process.
 func (darwinPlatform) PostStopCleanup() error { return nil }
 
+// ConfigurePFRedirect is not supported on macOS because mihomo's redir-port
+// (which receives the redirected traffic) does not work on darwin — it relies
+// on Linux's SO_ORIGINAL_DST to recover the original destination. On macOS
+// the "forward" gateway mode falls back to TUN with bypass_local instead.
+func (darwinPlatform) ConfigurePFRedirect(iface string, redirPort int) error {
+	return ErrNotSupported
+}
+
+func (darwinPlatform) UnconfigurePFRedirect() error { return nil }
+
 func (darwinPlatform) ResolveMihomoPath(preferred string) (string, error) {
 	if preferred != "" {
 		if _, err := os.Stat(preferred); err == nil {

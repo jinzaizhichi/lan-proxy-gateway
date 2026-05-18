@@ -1,6 +1,6 @@
 # mihomo skeleton rendered by lan-proxy-gateway v2.
 # {{TOKENS}} are replaced at runtime by internal/engine/render.go.
-mixed-port: {{MIXED_PORT}}
+{{MIXED_PORT_BLOCK}}
 redir-port: {{REDIR_PORT}}
 tproxy-port: 0
 allow-lan: true

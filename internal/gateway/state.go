@@ -16,6 +16,7 @@ import (
 type runtimeState struct {
 	NATInterface       string `json:"nat_interface,omitempty"`         // 我们 ConfigureNAT 用的 iface
 	WeEnabledIPForward bool   `json:"we_enabled_ip_forward,omitempty"` // 我们是否真的把 ip_forward 从 0 改成 1
+	GatewayMode        string `json:"gateway_mode,omitempty"`          // "tun" | "forward"；Disable 时据此决定清理逻辑
 }
 
 func readRuntimeState(path string) (runtimeState, error) {

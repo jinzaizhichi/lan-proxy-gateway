@@ -35,6 +35,20 @@ func DeviceGuide(status Status, mixedPort int) string {
 		return b.String()
 	}
 
+	if runtime.GOOS == "darwin" {
+		b.WriteString("  接入方式（按当前 mode 不同可走的方式不一样 · 菜单 → 流量 → 6 可切）\n")
+		b.WriteString("    场景                       推荐方式            填写\n")
+		b.WriteString(fmt.Sprintf("    手机 / 电脑 / 浏览器        填代理              主机=%s  端口=%d  类型=HTTP\n", ip, mixedPort))
+		b.WriteString(fmt.Sprintf("    Switch                     填代理              主机=%s  端口=%d  类型=HTTP\n", ip, mixedPort))
+		b.WriteString(fmt.Sprintf("    投影仪 / 电视 / IoT         改网关 + 改 DNS     网关=%s  DNS=%s  掩码=255.255.255.0\n", ip, ip))
+		b.WriteString("    本机使用                   不动                端口模式直连；TUN 模式低干扰走代理\n\n")
+		b.WriteString("  Mac 上两种模式的取舍：\n")
+		b.WriteString("    · 默认 TUN 旁路由（低干扰）：投影仪等只能改网关的设备能用，本机几乎不受影响\n")
+		b.WriteString("    · 端口模式：完全不开 TUN，宿主机零干扰；但只服务能填代理的设备\n")
+		b.WriteString("    · TUN 模式下 LAN 设备的 DNS 也必须指向本机，否则只是 NAT 不走代理\n")
+		return b.String()
+	}
+
 	b.WriteString("  接入方式\n")
 	b.WriteString("    方式        适合                    填写\n")
 	b.WriteString(fmt.Sprintf("    改网关      游戏机 / 电视            网关=%s  DNS=%s  掩码=255.255.255.0\n", ip, ip))

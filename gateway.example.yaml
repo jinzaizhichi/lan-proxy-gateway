@@ -7,12 +7,25 @@ version: 2
 # ========== 【主功能】局域网网关 ==========
 gateway:
   enabled: true
+  # 网关模式（菜单 → 流量 → 6 切换）：
+  #
+  #   tun     = TUN 旁路由（默认，一键式旁路由是本项目卖点）
+  #     - Mac:    已做低干扰处理（不抢宿主机 53、不接管宿主机出向）；
+  #               LAN 设备需要把【网关 + DNS 都指向本机 IP】才能走代理
+  #               （只改网关不改 DNS 只会被当成普通 NAT，不走代理）
+  #     - Linux:  TUN 全局接管（少见，适合单机用户）
+  #
+  #   forward = 端口模式（零干扰宿主机）
+  #     - Mac/Win: TUN 完全关，宿主机网络栈纹丝不动；只服务能显式填代理
+  #                的设备：<本机IP>:<mixed_port>。投影仪等不能填代理的请回 tun
+  #     - Linux:   iptables PREROUTING REDIRECT 透明旁路由（LAN 设备改默认
+  #                网关即可），宿主机直连不受影响
+  mode: tun
   tun:
-    # ⚠ 【必开】TUN 是让 Switch/PS5/Apple TV 改网关后真正走代理的关键。
-    # 关掉后设备改网关只是让流量被【普通路由转发】，照样被墙。
-    # 只在仅给手机/电脑用、且手动填代理服务器=本机IP:7890 的场景才能关。
+    # mode=tun 时必开；mode=forward 时此字段被 Effective 层强制忽略（TUN 关）。
     enabled: true
-    bypass_local: false    # true = 本机绕过 TUN（局域网设备仍走网关）
+    # bypass_local: 仅 Linux TUN 模式有意义；Mac 上 TUN 永远是低干扰版本，此项无效。
+    bypass_local: false
   dns:
     # 开 = LAN 设备可以直接把 DNS 指向本机 IP，最省事（推荐）。
     # 关 = LAN 设备 DNS 要单独设能用的地址（如 114.114.114.114 或路由器）。

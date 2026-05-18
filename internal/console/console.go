@@ -112,10 +112,43 @@ var (
 )
 
 func (c *consoleUI) banner(title string) {
+	// 进任意屏前都先把磁盘上的 gateway.yaml 重读一遍：让"用户在 Web 控制台改了东西
+	// 之后切回 CLI 菜单"立刻看到新值，避免 CLI 拿着内存里的旧 Cfg 显示陈旧数据，
+	// 或更糟糕——基于旧值做 toggle 把 Web 端刚改的设置回退掉。
+	//
+	// LoadFrom 失败时（罕见：被外部进程改坏 / 用户手动 rm）保留内存值，不影响菜单。
+	if c.app != nil && c.app.Paths.ConfigFile != "" {
+		if cfg, err := config.LoadFrom(c.app.Paths.ConfigFile); err == nil && cfg != nil {
+			c.app.Cfg = cfg
+		}
+	}
+
 	fmt.Fprintln(c.out)
 	titleC.Fprintln(c.out, bar)
 	titleC.Fprintf(c.out, "  %s\n", title)
 	titleC.Fprintln(c.out, bar)
+	c.printWebUIHint()
+}
+
+// printWebUIHint 在每个 banner 下方提示一行 "Web 控制台 http://192.168.x.x:19091"，
+// 让 CLI 用户知道还有 Web 入口 —— 不强求切换，单纯告诉。
+// 端口为 0（被禁用）则不打印。
+func (c *consoleUI) printWebUIHint() {
+	if c.app == nil {
+		return
+	}
+	port := c.app.Cfg.Runtime.Ports.WebUI
+	if port <= 0 {
+		return
+	}
+	ip := ""
+	if c.app.Gateway != nil {
+		ip = c.app.Gateway.Info().IP
+	}
+	if ip == "" {
+		ip = "localhost"
+	}
+	dimC.Fprintf(c.out, "  Web 控制台 → http://%s:%d   （CLI / Web 双开，gateway.yaml 实时同步）\n", ip, port)
 }
 
 func (c *consoleUI) prompt(label string) string {
@@ -569,7 +602,11 @@ func (c *consoleUI) printStatus() {
 		dimC.Fprintln(c.out, "  （未用 sudo；看状态、改配置都不需要；启动时才需要）")
 	}
 	if s.Running && !s.TUN {
-		warnC.Fprintln(c.out, "  ⚠ TUN 已关：Switch / PS5 等就算把网关指到本机，流量也不会走代理")
+		if s.GatewayMode == config.GatewayModeForward {
+			dimC.Fprintln(c.out, "  仅转发模式：宿主机流量直连，其他设备通过旁路由/代理端口走代理")
+		} else {
+			warnC.Fprintln(c.out, "  ⚠ TUN 已关：Switch / PS5 等就算把网关指到本机，流量也不会走代理")
+		}
 	}
 	if !c.app.Cfg.Gateway.DNS.Enabled {
 		warnC.Fprintln(c.out, "  ⚠ DNS 代理已关：LAN 设备 DNS 不能指向本机 IP，需另设能用的 DNS")
@@ -667,8 +704,13 @@ func (c *consoleUI) screenTraffic(ctx context.Context) {
 	for {
 		c.banner("分流 & 规则")
 		cfg := c.app.Cfg
-		fmt.Fprintf(c.out, "  模式 %s  ·  TUN %s  ·  广告拦截 %s  ·  自定义规则 %d\n\n",
+		gwMode := cfg.Gateway.Mode
+		if gwMode == "" {
+			gwMode = config.GatewayModeTUN
+		}
+		fmt.Fprintf(c.out, "  模式 %s  ·  网关 %s  ·  TUN %s  ·  广告拦截 %s  ·  自定义规则 %d\n\n",
 			cfg.Traffic.Mode,
+			gatewayModeLabel(gwMode),
 			onOff(cfg.Gateway.TUN.Enabled),
 			onOff(cfg.Traffic.Adblock),
 			len(cfg.Traffic.Extras.Direct)+len(cfg.Traffic.Extras.Proxy)+len(cfg.Traffic.Extras.Reject))
@@ -678,6 +720,7 @@ func (c *consoleUI) screenTraffic(ctx context.Context) {
 		fmt.Fprintln(c.out, "  4  自定义规则   直连 / 代理 / 拒绝 三组（优先级最高，盖过内置 china_direct 等）")
 		fmt.Fprintf(c.out, "  5  策略组自动补全 %s   订阅里缺 Auto/Fallback 时自动加（直选节点也能自动切换）\n",
 			onOff(cfg.Traffic.AutoGroups))
+		fmt.Fprintf(c.out, "  6  切换网关模式   当前: %s\n", gatewayModeLabel(gwMode))
 		dimC.Fprintln(c.out, "  9  高级设置     （DNS 开关 / 端口调整，端口冲突时才来）")
 		fmt.Fprintln(c.out)
 		titleC.Fprintln(c.out, "  ── 操作 ── 0 返回主菜单（或按 Q）")
@@ -735,6 +778,8 @@ func (c *consoleUI) screenTraffic(ctx context.Context) {
 			// 引用订阅里全部节点。reload 后 mihomo Web UI 就能看到新组。
 			c.app.Cfg.Traffic.AutoGroups = !c.app.Cfg.Traffic.AutoGroups
 			c.saveAndMaybeReload(ctx, fmt.Sprintf("策略组自动补全已 %s", onOff(c.app.Cfg.Traffic.AutoGroups)))
+		case "6":
+			c.switchGatewayMode(ctx)
 		case "9":
 			c.screenTrafficAdvanced(ctx)
 		case "0", "q", "Q", "":
@@ -880,6 +925,70 @@ func (c *consoleUI) deleteCustomRule(ctx context.Context, verdict, rule string) 
 		ex.Reject = remove(ex.Reject)
 	}
 	c.saveAndMaybeReload(ctx, fmt.Sprintf("  ✓ 已删：%s", rule))
+}
+
+// switchGatewayMode 在 TUN 旁路由 和 端口模式 之间切换。
+// 切换需要完整 stop + start（TUN 网卡 / iptables 规则要重建），不能只 hot-reload。
+//
+// 文案按平台分支：Mac 上 forward = 端口模式（无 TUN，零干扰）；Linux 上 forward
+// = iptables 透明旁路由。两者都能让宿主机网络栈不受 TUN 干扰，但 LAN 侧体验
+// 不一样，所以分开说。
+func (c *consoleUI) switchGatewayMode(ctx context.Context) {
+	cur := c.app.Cfg.Gateway.Mode
+	if cur == "" {
+		cur = config.GatewayModeTUN
+	}
+	mixed := strconv.Itoa(c.app.Cfg.Runtime.Ports.Mixed)
+	fmt.Fprintln(c.out)
+	if runtime.GOOS == "darwin" {
+		fmt.Fprintln(c.out, "  1) TUN 旁路由 (推荐 / 默认)")
+		dimC.Fprintln(c.out, "     投影仪、Switch、AppleTV 改默认网关 + DNS 到本机 IP 即走代理。")
+		dimC.Fprintln(c.out, "     已做低干扰处理：不抢宿主机 53、不接管宿主机出向；")
+		dimC.Fprintln(c.out, "     代价是会出现一个 utun 接口，少量 VPN 客户端可能重新评估路由。")
+		fmt.Fprintln(c.out, "  2) 端口模式 (零干扰)")
+		dimC.Fprintln(c.out, "     完全不开 TUN，宿主机网络栈纹丝不动 —— Tailscale 等彻底不受影响。")
+		dimC.Fprintln(c.out, "     代价是 LAN 设备必须能手动填代理 → <本机IP>:"+mixed+"（投影仪/电视通常做不到）。")
+	} else {
+		fmt.Fprintln(c.out, "  1) TUN 全局       宿主机 + 其他设备全走代理")
+		fmt.Fprintln(c.out, "  2) 仅转发         iptables REDIRECT 透明旁路由，宿主机直连不受影响")
+		dimC.Fprintln(c.out, "     宿主机想走代理可手动设 http_proxy=127.0.0.1:"+mixed)
+	}
+	fmt.Fprintf(c.out, "\n  当前: %s\n\n", gatewayModeLabel(cur))
+
+	choice := c.prompt("请选择 1-2（回车=取消）：> ")
+	var target string
+	switch choice {
+	case "1":
+		target = config.GatewayModeTUN
+	case "2":
+		target = config.GatewayModeForward
+	default:
+		return
+	}
+	if target == cur {
+		dimC.Fprintln(c.out, "已经是该模式，无需切换")
+		return
+	}
+	if err := c.app.SetGatewayMode(ctx, target); err != nil {
+		badC.Fprintf(c.out, "切换失败: %v\n", err)
+	} else {
+		okC.Fprintf(c.out, "已切换到 %s\n", gatewayModeLabel(target))
+	}
+}
+
+func gatewayModeLabel(mode string) string {
+	switch mode {
+	case config.GatewayModeForward:
+		if runtime.GOOS == "darwin" {
+			return "端口模式 (零干扰)"
+		}
+		return "仅转发 (iptables REDIRECT)"
+	default:
+		if runtime.GOOS == "darwin" {
+			return "TUN 旁路由 (低干扰)"
+		}
+		return "TUN 全局"
+	}
 }
 
 // screenTrafficAdvanced 收纳普通用户基本不需要碰的开关：DNS 代理开关、

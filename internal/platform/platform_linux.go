@@ -101,6 +101,22 @@ func (linuxPlatform) UnconfigureNAT(iface string) error {
 	return nil
 }
 
+// ConfigurePFRedirect 在 Linux 上**未实现**：Linux iptables REDIRECT 的完整实现
+// （含 LOCAL 排除、comment 标记精准清理）原本是 Docker 部署任务的副产品。该用户
+// 选择移除 Docker 支持，所以这条路径回到 stub —— Linux 用户跑 forward 模式会拿
+// 到 ErrNotSupported，Gateway.Enable 会用 errors.Is 兜住并退化成只跑 mihomo
+// mixed-port + DNS，等价于 "代理服务" 模式。
+//
+// 想恢复真正的 Linux 透明旁路由，参见 git log 里 "Docker deployment" 这条 commit
+// 之前的实现。
+func (linuxPlatform) ConfigurePFRedirect(iface string, redirPort int) error {
+	return ErrNotSupported
+}
+
+func (linuxPlatform) UnconfigurePFRedirect() error {
+	return ErrNotSupported
+}
+
 func (linuxPlatform) ResolveMihomoPath(preferred string) (string, error) {
 	if preferred != "" {
 		if _, err := os.Stat(preferred); err == nil {
