@@ -72,7 +72,7 @@ short_source() {
 }
 
 download_with_candidates() {
-  local url="$1" output="$2" show_progress="${3:-}" max_time="${4:-$GITHUB_ASSET_MAX_TIME}"
+  local url="$1" output="$2" show_progress="${3:-}" max_time="${4:-$GITHUB_ASSET_MAX_TIME}" validator="${5:-}"
   local progress_args=("-s")
   local candidate selected=""
   local -a candidates=()
@@ -110,10 +110,10 @@ download_with_candidates() {
     fi
     rm -f "$output"
     tried+=("$selected")
-    if curl "${curl_opts[@]}" "${HTTP_VERSION_ARGS[@]}" "${progress_args[@]}" -o "$output" "$selected"; then
+    if curl "${curl_opts[@]}" "${HTTP_VERSION_ARGS[@]}" "${progress_args[@]}" -o "$output" "$selected" && validate_download "$output" "$validator"; then
       return 0
     fi
-    warn "下载失败：$(short_source "$selected")"
+    warn "下载失败或内容无效：$(short_source "$selected")"
   fi
 
   # 第三阶段：兜底 —— 即使所有 probe 都失败，也按顺序把每个候选真的跑一遍。
@@ -129,9 +129,10 @@ download_with_candidates() {
     info "尝试: $(short_source "$candidate")"
     rm -f "$output"
     tried+=("$candidate")
-    if curl "${curl_opts[@]}" "${HTTP_VERSION_ARGS[@]}" "${progress_args[@]}" -o "$output" "$candidate"; then
+    if curl "${curl_opts[@]}" "${HTTP_VERSION_ARGS[@]}" "${progress_args[@]}" -o "$output" "$candidate" && validate_download "$output" "$validator"; then
       return 0
     fi
+    warn "下载失败或内容无效：$(short_source "$candidate")"
   done
 
   warn "全部下载源都失败。尝试过："
@@ -144,6 +145,25 @@ download_with_candidates() {
   warn "  2) 指定一个能用的镜像：  GITHUB_MIRROR=https://你的镜像/ bash install.sh"
   warn "  3) 走本机已经在跑的 Clash / Mihomo 端口： HTTP_PROXY=http://127.0.0.1:7897 HTTPS_PROXY=http://127.0.0.1:7897 bash install.sh"
   error "下载失败，安装中止。"
+}
+
+validate_download() {
+  local file="$1" validator="${2:-}"
+  [ -s "$file" ] || return 1
+  case "$validator" in
+    "")
+      return 0
+      ;;
+    github_api)
+      grep -q '"tag_name"' "$file"
+      ;;
+    tar_gz)
+      gzip -t "$file" >/dev/null 2>&1 && tar -tzf "$file" >/dev/null 2>&1
+      ;;
+    *)
+      error "未知下载校验器: $validator"
+      ;;
+  esac
 }
 
 # --- detect OS ---
@@ -181,7 +201,7 @@ info "正在获取最新版本..."
 
 # --- get latest release tag ---
 API_TMPFILE=$(mktemp)
-download_with_candidates "https://api.github.com/repos/${REPO}/releases/latest" "$API_TMPFILE" "" "$GITHUB_API_MAX_TIME"
+download_with_candidates "https://api.github.com/repos/${REPO}/releases/latest" "$API_TMPFILE" "" "$GITHUB_API_MAX_TIME" github_api
 TAG=$(grep '"tag_name"' "$API_TMPFILE" | head -1 | cut -d'"' -f4)
 rm -f "$API_TMPFILE"
 
@@ -198,7 +218,7 @@ trap 'rm -rf "$TMPDIR"' EXIT
 TARBALL="$TMPDIR/$ASSET"
 
 info "下载 ${ASSET}..."
-download_with_candidates "https://github.com/${REPO}/releases/download/${TAG}/${ASSET}" "$TARBALL" --progress
+download_with_candidates "https://github.com/${REPO}/releases/download/${TAG}/${ASSET}" "$TARBALL" --progress "$GITHUB_ASSET_MAX_TIME" tar_gz
 
 info "解压..."
 tar -C "$TMPDIR" -xzf "$TARBALL"

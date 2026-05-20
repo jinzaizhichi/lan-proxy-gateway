@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented here.
 
+## v3.4.11 - 2026-05-21
+
+### Fixed
+
+- Fixed `install.sh` treating mirror error pages as valid release tarballs. Some GitHub proxy mirrors can return HTML or other invalid content with a curl-successful response, which made the installer fail later with `tar: Error opening archive: Unrecognized archive format`.
+- `install.sh` now validates downloaded content before accepting a candidate source: GitHub API responses must contain `tag_name`, and release `.tar.gz` assets must pass both `gzip -t` and `tar -tzf`. Invalid content now triggers fallback to the next source.
+
 ## v3.4.10 - 2026-05-21
 
 ### Fixed
